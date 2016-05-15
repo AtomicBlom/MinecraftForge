@@ -1,7 +1,7 @@
 package net.minecraftforge.commonmodelformat;
 
-import com.github.atomicblom.client.model.cmf.b3d.B3DLoader;
-import com.github.atomicblom.client.model.cmf.opengex.OpenGEXLoader;
+import net.minecraftforge.client.model.cmf.b3d.B3DLoader;
+import net.minecraftforge.client.model.cmf.opengex.OpenGEXLoader;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.block.model.ModelResourceLocation;
 import net.minecraft.client.resources.IReloadableResourceManager;
