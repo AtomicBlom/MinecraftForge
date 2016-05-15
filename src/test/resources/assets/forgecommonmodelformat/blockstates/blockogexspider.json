@@ -1,0 +1,40 @@
+{
+  "forge_marker": 1,
+  "defaults": {
+    "textures": {
+      "SSSteamSpider": "examplemod:models/SSSteamSpider",
+      "//D/The Forge/Minecraft/SteamNSteel/Models/Entities/SSSteamSpider": "examplemod:models/SSSteamSpider"
+    },
+    "model": "examplemod:SSSteamSpider.ogex",
+    "custom": {
+      "mesh": ["SSLargeFan_Chasis", "SSLargeFan_Rotor"]
+    }
+  },
+  "variants": {
+    "normal": [{}],
+    "inventory": [{
+      "transform": "forge:default-block"
+    }],
+    "facing": {
+      "down":  {},
+      "up":    {},
+      "north": {},
+      "south": {},
+      "west":  {},
+      "east":  {}
+    },
+    "static": {
+      "true": {
+        "model": "builtin/generated"
+      },
+      "false": {
+        "transform": { "translation": [1, 0.5, 1], "scale": 2 },
+        "custom": {
+            "mesh": ["SSLargeFan_Rotor"]
+        }
+      }
+    },
+    "entity": [{
+    }]
+  }
+}

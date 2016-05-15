@@ -1,0 +1,87 @@
+{
+  //Externally defined parameters - Variable
+  // float click_start() { return TileEntity.clickStart; }
+  // float click_end() { return TileEntity.clickEnd; }
+
+  "parameters": {
+    "fps": 30,
+    "walk_start": 0,
+    "walk_loop": 10,
+    "walk_stop": 22,
+    "attack_steam": 30,
+    "attack_steam_stop": 55,
+    "attack_leap": 70,
+    "end": 96,
+
+    "start_length": [ "compose", [ "-", "#walk_start"  ], "#walk_loop" ],
+    "loop_length":  [ "compose", [ "-", "#walk_loop"   ], "#walk_stop" ],
+    "stop_length":  [ "compose", [ "-", "#walk_stop"   ], "#attack_steam" ],
+    "leap_length":  [ "compose", [ "-", "#attack_leap" ], "#end" ],
+
+    "speed": 1,
+    "mul": [ "compose", ["*", "#speed"], "#fps" ],
+
+    "since_click_start": [ "-*", "#click_start", "#mul" ],
+    "frames_walking":       [ "compose", [ "-M*-", "#click_start", 0.1, "#mul", "#walk_loop" ], "#click_end" ],
+    "frames_walking_rounded": [ "compose", [ "R", "#loop_length" ], "#frames_walking" ],
+    "next_cycle_end":       [ "compose", [ "*++", "#mul", "#walk_loop", "#frames_walking_rounded" ], "#click_start" ],
+
+    "walk_start_time": [ "compose", [ "-m+/", "#walk_start", "#start_length", "#walk_start", "#fps" ], "#since_click_start" ],
+    "walk_loop_time":  [ "compose", [ "-f+/", "#walk_loop",  "#loop_length",  "#walk_loop",  "#fps" ], "#since_click_start" ],
+    "walk_stop_time":  [ "*-m+/", "#mul", "#next_cycle_end", "#stop_length", "#walk_stop", "#fps" ],
+
+    "attack_leap_time": [ "compose", [ "m+/", "#leap_length", "#attack_leap", "#fps" ], "#since_click_start" ],
+
+    "end_walk_start_clip":  [ "compose", [ "-", "#start_length" ], "#since_click_start" ],
+    "end_walk_loop_clip":   [ "*-",  "#mul", "#next_cycle_end" ],
+    "end_walk_stop_clip":   [ "*--", "#mul", "#next_cycle_end", "#stop_length" ],
+    "end_attack_leap_clip": [ "compose", [ "-", "#leap_length" ], "#since_click_start" ]
+  },
+  "clips": {
+    "model": "examplemod:block/SSSteamSpider.ogex@main",
+    "idle": [ "apply", "#model", 0 ],
+    "walk_start": [
+      "trigger_positive",
+      [ "apply", "#model", "#walk_start_time" ],
+      "#end_walk_start_clip",
+      "!transition:walk_loop"
+    ],
+    "walk_loop": [ "apply", "#model", "#walk_loop_time"],
+    "walk_loop_last": [
+      "trigger_positive",
+      "#walk_loop",
+      "#end_walk_loop_clip",
+      "!transition:walk_stop"
+    ],
+    "walk_stop": [
+      "trigger_positive",
+      [ "apply", "#model", "#walk_stop_time" ],
+      "#end_walk_stop_clip",
+      "!transition:idle"
+    ],
+    "attack_leap": [
+      "trigger_positive",
+      [ "apply", "#model", "#attack_leap_time" ],
+      "#end_attack_leap_clip",
+      "!transition:idle"
+    ]
+  },
+
+  "states": [
+    "idle",
+    "walk_start",
+    "walk_loop",
+    "walk_loop_last",
+    "walk_stop",
+    "attack_leap"
+  ],
+  "transitions": {
+    "idle": [ "walk_start", "attack_leap" ],
+    "walk_start": "walk_loop",
+    "walk_loop": "walk_loop_last",
+    "walk_loop_last": "walk_stop",
+    "walk_stop": "idle",
+    "attack_leap": "idle"
+  },
+  "start_state": "idle"
+}
