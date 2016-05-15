@@ -32,7 +32,7 @@
     "end_stopping_clip": [ "compose", [ "-/", 10, "#fps" ], "#time_since_last_click_in_fps" ]
   },
   "clips": {
-    "model": "examplemod:block/SSSteamSpider.ogex@main",
+    "model": "forgecommonmodelformat:block/SSSteamSpider.ogex@main",
     "main": [ "apply", "#model", ["/f", 2, 1.66667] ],
     "stopped": [ "apply", "#model", 0 ],
     "startWalking": [

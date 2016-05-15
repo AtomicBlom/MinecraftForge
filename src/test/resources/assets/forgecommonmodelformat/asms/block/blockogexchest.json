@@ -8,7 +8,7 @@
     "speed": 1
   },
   "clips": {
-    "model": "examplemod:block/snek.ogex@main",
+    "model": "forgecommonmodelformat:block/snek.ogex@main",
     "main": [ "apply", "#model", ["/f", 2, 2.5] ]
   },
   "states": [

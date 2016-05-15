@@ -103,7 +103,6 @@ public class BakedWrapper implements IPerspectiveAwareModel
         {
             generateQuads(builder, child, state);
         }
-        boolean boneDebugging = true;
 
         if (node.getKind() instanceof Joint && boneVisualization.isPresent()) {
             Mesh mesh = boneVisualization.get().generateBoneVisualizationMesh(node);

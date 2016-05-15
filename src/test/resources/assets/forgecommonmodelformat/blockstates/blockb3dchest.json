@@ -4,7 +4,7 @@
     "textures": {
       "#chest": "entity/chest/normal"
     },
-        "model": "examplemod:chest.b3d",
+        "model": "forgecommonmodelformat:chest.b3d",
         "custom": {
             "mesh": ["Base", "Lid"]
         }

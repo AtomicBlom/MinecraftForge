@@ -20,7 +20,7 @@ import net.minecraftforge.common.property.Properties;
 
 public abstract class ChestBlockBase extends ConvenienceBlockBase
 {
-    public ChestBlockBase(ResourceLocation name) {super(name, Material.WOOD);}
+    public ChestBlockBase(ResourceLocation name) {super(name, Material.wood);}
 
     @Override
     public ExtendedBlockState createBlockState()

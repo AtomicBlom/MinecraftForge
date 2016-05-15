@@ -10,11 +10,11 @@
       "//C/Users/codew/Pictures/stone": "blocks/stone",
       "//C/Users/Rosethorns/Documents/3dsMax/scenes/Minecraft/stone": "blocks/slime"
     },
-      /*"model": "examplemod:chest.ogex",
+      /*"model": "forgecommonmodelformat:chest.ogex",
       "custom": {
         "mesh": ["Base", "Lid"]
       }*/
-    "model": "examplemod:snek4.ogex",
+    "model": "forgecommonmodelformat:snek4.ogex",
     "custom": {
       "mesh": ["SNEK"]
     }
@@ -39,7 +39,7 @@
             //"mesh": ["SNEK"]
           "mesh": []
         }
-        //"cmf": "examplemod:engine"
+        //"cmf": "forgecommonmodelformat:engine"
       },
       "false": {
         //"model": "builtin/generated",
@@ -47,13 +47,13 @@
             //"mesh": []
             "mesh": ["SNEK"]
         }
-        //"cmf": "examplemod:engine_ring"
+        //"cmf": "forgecommonmodelformat:engine_ring"
       }
     },
     "entity": [{
-      /*"cmf": "examplemod:engine",
+      /*"cmf": "forgecommonmodelformat:engine",
       "submodel": {
-        "ring": { "cmf": "examplemod:engine_ring" }
+        "ring": { "cmf": "forgecommonmodelformat:engine_ring" }
       }*/
     }]
   }

@@ -13,8 +13,8 @@ public abstract class ConvenienceBlockBase extends Block
     public ConvenienceBlockBase(ResourceLocation name, Material material)
     {
         super(material);
-        setCreativeTab(CreativeTabs.BUILDING_BLOCKS);
-        setUnlocalizedName(name.getResourceDomain() + "." + name);
+        setCreativeTab(CreativeTabs.tabBlock);
+        setUnlocalizedName(name.getResourceDomain() + "." + name.getResourcePath());
         setRegistryName(name);
     }
 }

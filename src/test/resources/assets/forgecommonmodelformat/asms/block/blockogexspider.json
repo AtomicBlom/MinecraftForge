@@ -38,7 +38,7 @@
     "end_attack_leap_clip": [ "compose", [ "-", "#leap_length" ], "#since_click_start" ]
   },
   "clips": {
-    "model": "examplemod:block/SSSteamSpider.ogex@main",
+    "model": "forgecommonmodelformat:block/SSSteamSpider.ogex@main",
     "idle": [ "apply", "#model", 0 ],
     "walk_start": [
       "trigger_positive",

@@ -35,18 +35,18 @@ public class ClientProxy extends CommonProxy implements IResourceManagerReloadLi
         ModelLoaderRegistry.registerLoader(OpenGEXLoader.INSTANCE);
 
         ModelLoader.setCustomModelResourceLocation(
-            Item.REGISTRY.getObject(Resources.B3DBlocks.blockChestId), 0,
+            Item.itemRegistry.getObject(Resources.B3DBlocks.blockChestId), 0,
             new ModelResourceLocation(Resources.B3DBlocks.blockChestId, "inventory"));
 
         ModelLoader.setCustomModelResourceLocation(
-                Item.REGISTRY.getObject(Resources.OgexBlocks.blockChestId), 0,
+                Item.itemRegistry.getObject(Resources.OgexBlocks.blockChestId), 0,
                 new ModelResourceLocation(Resources.OgexBlocks.blockChestId, "inventory"));
         ModelLoader.setCustomModelResourceLocation(
-                Item.REGISTRY.getObject(Resources.OgexBlocks.blockFanId), 0,
+                Item.itemRegistry.getObject(Resources.OgexBlocks.blockFanId), 0,
                 new ModelResourceLocation(Resources.OgexBlocks.blockFanId, "inventory"));
 
         ModelLoader.setCustomModelResourceLocation(
-                Item.REGISTRY.getObject(Resources.OgexBlocks.blockSpiderId), 0,
+                Item.itemRegistry.getObject(Resources.OgexBlocks.blockSpiderId), 0,
                 new ModelResourceLocation(Resources.OgexBlocks.blockSpiderId, "inventory"));
 
         ClientRegistry.bindTileEntitySpecialRenderer(B3DChestTileEntity.class, new AnimationTESR<B3DChestTileEntity>()

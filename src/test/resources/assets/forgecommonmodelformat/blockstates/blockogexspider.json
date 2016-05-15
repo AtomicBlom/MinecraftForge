@@ -2,10 +2,10 @@
   "forge_marker": 1,
   "defaults": {
     "textures": {
-      "SSSteamSpider": "examplemod:models/SSSteamSpider",
-      "//D/The Forge/Minecraft/SteamNSteel/Models/Entities/SSSteamSpider": "examplemod:models/SSSteamSpider"
+      "SSSteamSpider": "forgecommonmodelformat:models/SSSteamSpider",
+      "//D/The Forge/Minecraft/SteamNSteel/Models/Entities/SSSteamSpider": "forgecommonmodelformat:models/SSSteamSpider"
     },
-    "model": "examplemod:SSSteamSpider.ogex",
+    "model": "forgecommonmodelformat:SSSteamSpider.ogex",
     "custom": {
       "mesh": ["SSLargeFan_Chasis", "SSLargeFan_Rotor"]
     }
