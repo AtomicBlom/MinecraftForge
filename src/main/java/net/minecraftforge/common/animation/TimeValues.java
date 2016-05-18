@@ -24,6 +24,8 @@ import org.apache.commons.lang3.NotImplementedException;
  */
 public final class TimeValues
 {
+    private static final Pattern opsPattern = Pattern.compile("[+\\-*/mMrRfF]+");
+
     public static enum IdentityValue implements ITimeValue, IStringSerializable
     {
         INSTANCE;
@@ -117,8 +119,6 @@ public final class TimeValues
 
     public static final class SimpleExprValue implements ITimeValue
     {
-        private static final Pattern opsPattern = Pattern.compile("[+\\-*/mMrRfF]+");
-
         private final String operators;
         private final ImmutableList<ITimeValue> args;
 
@@ -332,7 +332,7 @@ public final class TimeValues
                         in.beginArray();
                         String type = in.nextString();
                         ITimeValue p;
-                        if(SimpleExprValue.opsPattern.matcher(type).matches())
+                        if(opsPattern.matcher(type).matches())
                         {
                             ImmutableList.Builder<ITimeValue> builder = ImmutableList.builder();
                             while(in.hasNext())
@@ -409,11 +409,11 @@ public final class TimeValues
         }
     }
 
-    public static final class Symbol implements IStringAtom
+    public static final class StringAtom implements IStringAtom
     {
         private final String value;
 
-        public Symbol(String value)
+        public StringAtom(String value)
         {
             this.value = value;
         }
@@ -436,6 +436,43 @@ public final class TimeValues
         @Override
         public String toString()
         {
+            return "\" " + value + "\"";
+        }
+
+        @Override
+        public String value()
+        {
+            return " " + value;
+        }
+    }
+
+    public static final class Symbol implements IStringAtom
+    {
+        private final String value;
+
+        public Symbol(String value)
+        {
+            this.value = value.intern();
+        }
+
+        @Override
+        public boolean equals(Object o)
+        {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            Symbol that = (Symbol) o;
+            return value == that.value;
+        }
+
+        @Override
+        public int hashCode()
+        {
+            return Objects.hashCode(value);
+        }
+
+        @Override
+        public String toString()
+        {
             return "\"#" + value + "\"";
         }
 
@@ -443,6 +480,98 @@ public final class TimeValues
         public String value()
         {
             return "#" + value;
+        }
+    }
+
+    private static int length(ISExp exp)
+    {
+        if(exp == Nil.INSTANCE || exp == MNil.INSTANCE)
+        {
+            return 0;
+        }
+        if(exp instanceof Cons)
+        {
+            return 1 + length(((Cons) exp).cdr);
+        }
+        if(exp instanceof Map)
+        {
+            return ((Map) exp).value.size();
+        }
+        throw new IllegalArgumentException("Length called neither on a list nor on a map");
+    }
+
+    public static class ArithmOp implements IStringAtom
+    {
+        private final String ops;
+
+        ArithmOp(String ops)
+        {
+            this.ops = ops;
+        }
+
+        @Override
+        public boolean equals(Object o)
+        {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            ArithmOp that = (ArithmOp) o;
+            return Objects.equal(ops, that.ops);
+        }
+
+        @Override
+        public int hashCode()
+        {
+            return Objects.hashCode(ops);
+        }
+
+        @Override
+        public String toString()
+        {
+            return "\"" + ops + "\"";
+        }
+
+        @Override
+        public String value()
+        {
+            return ops;
+        }
+
+        public FloatAtom apply(IList args)
+        {
+            if(length(args) != ops.length() + 1)
+            {
+                throw new IllegalArgumentException("arithmetic operator string \"" + value() + "\" needs " + ops.length() + " arguments, got " + args);
+            }
+            Cons cons = (Cons) args;
+            if(!(cons.car instanceof FloatAtom))
+            {
+                throw new IllegalArgumentException("arithmetic operator needs a number, got " + cons.car);
+            }
+            float ret = ((FloatAtom) cons.car).value;
+            for(int i = 0; i < ops.length(); i++)
+            {
+                cons = (Cons) cons.cdr;
+                if(!(cons.car instanceof FloatAtom))
+                {
+                    throw new IllegalArgumentException("arithmetic operator needs a number, got " + cons.car);
+                }
+                float arg = ((FloatAtom) cons.car).value;
+                switch(ops.charAt(i))
+                {
+                    case '+': ret += arg; break;
+                    case '-': ret -= arg; break;
+                    case '*': ret *= arg; break;
+                    case '/': ret /= arg; break;
+                    case 'm': ret = Math.min(ret, arg); break;
+                    case 'M': ret = Math.max(ret, arg); break;
+                    case 'r': ret = (float)Math.floor(ret / arg) * arg; break;
+                    case 'R': ret = (float)Math.ceil(ret / arg) * arg; break;
+                    case 'f': ret -= Math.floor(ret / arg) * arg; break;
+                    case 'F': ret = (float)Math.ceil(ret / arg) * arg - ret; break;
+                    default: throw new IllegalArgumentException("Unknown operator:" + ops.charAt(i));
+                }
+            }
+            return new FloatAtom(ret);
         }
     }
 
@@ -462,19 +591,7 @@ public final class TimeValues
                 {
                     throw new IllegalArgumentException("Length has too many arguments: " + cons);
                 }
-                if(cons.car == Nil.INSTANCE || cons.car == MNil.INSTANCE)
-                {
-                    return new FloatAtom(0);
-                }
-                if(cons.car instanceof Cons)
-                {
-                    return new FloatAtom(1 + apply(new Cons(((Cons) cons.car).cdr, Nil.INSTANCE)).value);
-                }
-                if(cons.car instanceof Map)
-                {
-                    return new FloatAtom(((Map) cons.car).value.size());
-                }
-                throw new IllegalArgumentException("Length called neither on a list nor on a map");
+                return new FloatAtom(length(cons.car));
             }
         },
         Cons("cons")
@@ -482,7 +599,7 @@ public final class TimeValues
             @Override
             public ISExp apply(IList args)
             {
-                if(!Length.apply(new Cons(args, Nil.INSTANCE)).equals(new FloatAtom(2)))
+                if(length(args) != 2)
                 {
                     throw new IllegalArgumentException("Cons needs 2 arguments, got: " + args);
                 }
@@ -500,7 +617,7 @@ public final class TimeValues
             @Override
             public ISExp apply(IList args)
             {
-                if(!Length.apply(new Cons(args, Nil.INSTANCE)).equals(new FloatAtom(2)))
+                if(length(args) != 1)
                 {
                     throw new IllegalArgumentException("Car needs 1 argument, got: " + args);
                 }
@@ -517,7 +634,7 @@ public final class TimeValues
             @Override
             public ISExp apply(IList args)
             {
-                if(!Length.apply(new Cons(args, Nil.INSTANCE)).equals(new FloatAtom(2)))
+                if(length(args) != 1)
                 {
                     throw new IllegalArgumentException("Cdr needs 1 argument, got: " + args);
                 }
@@ -746,6 +863,11 @@ public final class TimeValues
         {
             return lookup(env, (Symbol) exp);
         }
+        // FIXME: is this the way?
+        else if(exp instanceof ArithmOp)
+        {
+            return exp;
+        }
         else if(exp instanceof Cons)
         {
             Cons cons = (Cons) exp;
@@ -795,6 +917,10 @@ public final class TimeValues
         if(func instanceof PrimOp)
         {
             return ((PrimOp)func).apply(args);
+        }
+        if(func instanceof ArithmOp)
+        {
+            return ((ArithmOp) func).apply(args);
         }
         if(func instanceof Cons)
         {
@@ -897,6 +1023,14 @@ public final class TimeValues
                     {
                         return new Symbol(string.substring(1));
                     }
+                    if(string.startsWith(" "))
+                    {
+                        return new StringAtom(string.substring(1));
+                    }
+                    if(opsPattern.matcher(string).matches())
+                    {
+                        return new ArithmOp(string);
+                    }
                     throw new JsonParseException("Unknown string: \"" + string + "\"");
                 }
 
@@ -914,29 +1048,32 @@ public final class TimeValues
                             in.beginArray();
                             IList list = readCdr(in);
                             in.endArray();
-                            if(list instanceof Cons && ((Cons) list).car.equals(new Symbol("&map")))
+                            if(list instanceof Cons)
                             {
-                                // de-sugaring the map with non-string keys
-                                ImmutableMap.Builder<ISExp, ISExp> builder = ImmutableMap.builder();
-                                list = ((Cons) list).cdr;
-                                while(list != Nil.INSTANCE)
+                                Cons cons = (Cons) list;
+                                if (cons.car.equals(new Symbol("&map")))
                                 {
-                                    Cons c1 = (Cons) list;
-                                    Cons c2 = (Cons) c1.cdr;
-                                    builder.put(c1.car, c2.car);
-                                    list = c2.cdr;
+                                    // de-sugaring the map with non-string keys
+                                    ImmutableMap.Builder<ISExp, ISExp> builder = ImmutableMap.builder();
+                                    list = ((Cons) list).cdr;
+                                    while (list != Nil.INSTANCE)
+                                    {
+                                        Cons c1 = (Cons) list;
+                                        Cons c2 = (Cons) c1.cdr;
+                                        builder.put(c1.car, c2.car);
+                                        list = c2.cdr;
+                                    }
+                                    ImmutableMap<ISExp, ISExp> value = builder.build();
+                                    IMap map;
+                                    if (value.isEmpty())
+                                    {
+                                        map = MNil.INSTANCE;
+                                    } else
+                                    {
+                                        map = new Map(value);
+                                    }
+                                    return map;
                                 }
-                                ImmutableMap<ISExp, ISExp> value = builder.build();
-                                IMap map;
-                                if(value.isEmpty())
-                                {
-                                    map = MNil.INSTANCE;
-                                }
-                                else
-                                {
-                                    map = new Map(value);
-                                }
-                                return map;
                             }
                             return list;
                         case BEGIN_OBJECT:
