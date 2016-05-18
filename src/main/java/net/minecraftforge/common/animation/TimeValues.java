@@ -377,6 +377,10 @@ public final class TimeValues
     {
         String value();
     }
+    public static interface ICallableAtom extends IAtom
+    {
+        ISExp apply(IList args);
+    }
 
     public static final class FloatAtom implements IAtom
     {
@@ -500,7 +504,44 @@ public final class TimeValues
         throw new IllegalArgumentException("Length called neither on a list nor on a map");
     }
 
-    public static class ArithmOp implements IStringAtom
+    public static class ArithmSymbol implements IStringAtom
+    {
+        private final String ops;
+
+        public ArithmSymbol(String ops)
+        {
+            this.ops = ops;
+        }
+
+        @Override
+        public boolean equals(Object o)
+        {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            ArithmSymbol that = (ArithmSymbol) o;
+            return Objects.equal(ops, that.ops);
+        }
+
+        @Override
+        public int hashCode()
+        {
+            return Objects.hashCode(ops);
+        }
+
+        @Override
+        public String toString()
+        {
+            return "\"" + ops + "\"";
+        }
+
+        @Override
+        public String value()
+        {
+            return ops;
+        }
+    }
+
+    public static class ArithmOp implements ICallableAtom
     {
         private final String ops;
 
@@ -531,16 +572,11 @@ public final class TimeValues
         }
 
         @Override
-        public String value()
-        {
-            return ops;
-        }
-
         public FloatAtom apply(IList args)
         {
             if(length(args) != ops.length() + 1)
             {
-                throw new IllegalArgumentException("arithmetic operator string \"" + value() + "\" needs " + ops.length() + " arguments, got " + args);
+                throw new IllegalArgumentException("arithmetic operator string \"" + ops + "\" needs " + ops.length() + " arguments, got " + args);
             }
             Cons cons = (Cons) args;
             if(!(cons.car instanceof FloatAtom))
@@ -575,7 +611,7 @@ public final class TimeValues
         }
     }
 
-    public enum PrimOp implements IAtom
+    public enum PrimOp implements ICallableAtom
     {
         Length("length")
         {
@@ -659,7 +695,6 @@ public final class TimeValues
             @Override
             public ISExp apply(IList args)
             {
-
                 throw new NotImplementedException("conm");
             }
         };
@@ -681,7 +716,58 @@ public final class TimeValues
             this.name = new Symbol(name);
         }
 
-        public abstract ISExp apply(IList args);
+        @Override
+        public String toString()
+        {
+            return "&" + name.value;
+        }
+    }
+
+    public static class User implements ICallableAtom
+    {
+        private final String name;
+        private final ITimeValue parameter;
+
+        public User(String name, ITimeValue parameter)
+        {
+            this.name = name;
+            this.parameter = parameter;
+        }
+
+        @Override
+        public boolean equals(Object o)
+        {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            User user = (User) o;
+            return Objects.equal(parameter, user.parameter);
+        }
+
+        @Override
+        public int hashCode()
+        {
+            return Objects.hashCode(parameter);
+        }
+
+        @Override
+        public String toString()
+        {
+            return "&user[" + name + "]";
+        }
+
+        public FloatAtom apply(IList args)
+        {
+            if(length(args) != 1)
+            {
+                throw new IllegalArgumentException("User parameter \"" + name + "\" needs 1 argument, got " + args);
+            }
+            Cons cons = (Cons) args;
+            if(cons.car instanceof FloatAtom)
+            {
+                return new FloatAtom(parameter.apply(((FloatAtom) cons.car).value));
+            }
+            throw new IllegalArgumentException("User parameter \"" + name + "\" needs float argument, got " + cons.car);
+        }
     }
 
     public static interface IList extends ISExp {}
@@ -801,7 +887,7 @@ public final class TimeValues
 
     private static IList bind(IList argNames, IList args, IList env)
     {
-        if(!PrimOp.Length.apply(new Cons(argNames, Nil.INSTANCE)).equals(PrimOp.Length.apply(new Cons(args, Nil.INSTANCE))))
+        if(length(argNames) != length(args))
         {
             throw new IllegalArgumentException("called bind with lists of different length");
         }
@@ -849,13 +935,18 @@ public final class TimeValues
         throw new IllegalArgumentException("lookup called with a list that has something other than a map:" + cons.car);
     }
 
-    public static ISExp eval(ISExp exp)
+    public static ISExp eval(ISExp exp, Function<? super String, ? extends ITimeValue> userParameters)
     {
-        return eval(exp, new Cons(new Map(PrimOp.values), Nil.INSTANCE));
+        return eval(exp, new Cons(new Map(PrimOp.values), Nil.INSTANCE), userParameters);
     }
-    private static ISExp eval(ISExp exp, IList env)
+
+    private static ISExp eval(ISExp exp, IList env, Function<? super String, ? extends ITimeValue> userParameters)
     {
         if(exp instanceof FloatAtom)
+        {
+            return exp;
+        }
+        if(exp instanceof StringAtom)
         {
             return exp;
         }
@@ -863,64 +954,79 @@ public final class TimeValues
         {
             return lookup(env, (Symbol) exp);
         }
-        // FIXME: is this the way?
-        else if(exp instanceof ArithmOp)
+        else if(exp instanceof ArithmSymbol)
         {
-            return exp;
+            return new ArithmOp(((ArithmSymbol) exp).ops);
         }
         else if(exp instanceof Cons)
         {
             Cons cons = (Cons) exp;
-            if(new Symbol("quote").equals(cons.car))
+            if(cons.car instanceof Symbol)
             {
-                if(cons.cdr == Nil.INSTANCE)
+                String name = ((Symbol) cons.car).value;
+                if (name == "quote")
                 {
-                    throw new IllegalArgumentException("quote with no arguments");
+                    if (cons.cdr == Nil.INSTANCE)
+                    {
+                        throw new IllegalArgumentException("quote with no arguments");
+                    }
+                    Cons cdr = (Cons) cons.cdr;
+                    if (cdr.cdr != Nil.INSTANCE)
+                    {
+                        throw new IllegalArgumentException("quote with too many arguments: " + exp);
+                    }
+                    return cdr.car;
                 }
-                Cons cdr = (Cons)cons.cdr;
-                if(cdr.cdr != Nil.INSTANCE)
+                else if (name == "lambda")
                 {
-                    throw new IllegalArgumentException("quote with too many arguments: " + exp);
+                    if (cons.cdr == Nil.INSTANCE)
+                    {
+                        throw new IllegalArgumentException("lambda with no arguments");
+                    }
+                    Cons c1 = (Cons) cons.cdr;
+                    ISExp args = c1.car;
+                    if (c1.cdr == Nil.INSTANCE)
+                    {
+                        throw new IllegalArgumentException("lambda with 1 argument");
+                    }
+                    Cons c2 = (Cons) c1.cdr;
+                    ISExp body = c2.car;
+                    if (c2.cdr != Nil.INSTANCE)
+                    {
+                        throw new IllegalArgumentException("lambda with too many arguments: " + exp);
+                    }
+                    return new Cons(new Symbol("&function"), new Cons(args, new Cons(body, new Cons(env, Nil.INSTANCE))));
                 }
-                return cdr.car;
+                else if (name == "user")
+                {
+                    if (length(cons.cdr) != 1)
+                    {
+                        throw new IllegalArgumentException("user needs 1 argument, got: " + cons.cdr);
+                    }
+                    Cons c2 = (Cons) cons.cdr;
+                    if (c2.car instanceof StringAtom)
+                    {
+                        String parameterName = ((StringAtom) c2.car).value;
+                        ITimeValue parameter = userParameters.apply(parameterName);
+                        if (parameter == null)
+                        {
+                            return new Symbol("&unbound");
+                        }
+                        return new User(parameterName, parameter);
+                    }
+                    throw new IllegalArgumentException("user needs string argument, got: " + cons.car);
+                }
             }
-            else if(new Symbol("lambda").equals(cons.car))
-            {
-                if(cons.cdr == Nil.INSTANCE)
-                {
-                    throw new IllegalArgumentException("lambda with no arguments");
-                }
-                Cons c1 = (Cons)cons.cdr;
-                ISExp args = c1.car;
-                if(c1.cdr == Nil.INSTANCE)
-                {
-                    throw new IllegalArgumentException("lambda with 1 argument");
-                }
-                Cons c2 = (Cons) c1.cdr;
-                ISExp body = c2.car;
-                if(c2.cdr != Nil.INSTANCE)
-                {
-                    throw new IllegalArgumentException("lambda with too many arguments: " + exp);
-                }
-                return new Cons(new Symbol("&function"), new Cons(args, new Cons(body, new Cons(env, Nil.INSTANCE))));
-            }
-            else
-            {
-                return apply(eval(cons.car, env), evlis(cons.cdr, env));
-            }
+                return apply(eval(cons.car, env, userParameters), evlis(cons.cdr, env, userParameters), userParameters);
         }
         throw new IllegalStateException("eval of " + exp);
     }
 
-    private static ISExp apply(ISExp func, IList args)
+    private static ISExp apply(ISExp func, IList args, Function<? super String, ? extends ITimeValue> userParameters)
     {
-        if(func instanceof PrimOp)
+        if(func instanceof ICallableAtom)
         {
-            return ((PrimOp)func).apply(args);
-        }
-        if(func instanceof ArithmOp)
-        {
-            return ((ArithmOp) func).apply(args);
+            return ((ICallableAtom)func).apply(args);
         }
         if(func instanceof Cons)
         {
@@ -939,7 +1045,7 @@ public final class TimeValues
                         ISExp env = c4.car;
                         if(env instanceof IList && c4.cdr == Nil.INSTANCE)
                         {
-                            return eval(body, bind(argNames, args, (IList) env));
+                            return eval(body, bind(argNames, args, (IList) env), userParameters);
                         }
                     }
                 }
@@ -948,14 +1054,14 @@ public final class TimeValues
         throw new IllegalArgumentException("Don't know how to apply: " + func);
     }
 
-    private static IList evlis(IList list, IList env)
+    private static IList evlis(IList list, IList env, Function<? super String, ? extends ITimeValue> userParameters)
     {
         if(list == Nil.INSTANCE)
         {
             return Nil.INSTANCE;
         }
         Cons cons = (Cons) list;
-        return new Cons(eval(cons.car, env), evlis(cons.cdr, env));
+        return new Cons(eval(cons.car, env, userParameters), evlis(cons.cdr, env, userParameters));
     }
 
     public static enum SExpTypeAdapterFactory implements TypeAdapterFactory
