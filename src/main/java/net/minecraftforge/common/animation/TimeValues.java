@@ -6,7 +6,6 @@ import java.util.regex.Pattern;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableMap;
 import com.google.gson.JsonParseException;
-import com.google.gson.stream.JsonToken;
 import net.minecraft.util.IStringSerializable;
 
 import com.google.common.base.Function;
@@ -410,11 +409,11 @@ public final class TimeValues
         }
     }
 
-    public static final class Identifier implements IStringAtom
+    public static final class Symbol implements IStringAtom
     {
         private final String value;
 
-        public Identifier(String value)
+        public Symbol(String value)
         {
             this.value = value;
         }
@@ -424,7 +423,7 @@ public final class TimeValues
         {
             if (this == o) return true;
             if (o == null || getClass() != o.getClass()) return false;
-            Identifier that = (Identifier) o;
+            Symbol that = (Symbol) o;
             return Objects.equal(value, that.value);
         }
 
@@ -548,21 +547,21 @@ public final class TimeValues
             }
         };
 
-        private static final ImmutableMap<Identifier, PrimOp> values;
+        private static final ImmutableMap<Symbol, PrimOp> values;
         static
         {
-            ImmutableMap.Builder<Identifier, PrimOp> builder = ImmutableMap.builder();
+            ImmutableMap.Builder<Symbol, PrimOp> builder = ImmutableMap.builder();
             for(PrimOp op : values())
             {
                 builder.put(op.name, op);
             }
             values = builder.build();
         }
-        private final Identifier name;
+        private final Symbol name;
 
         PrimOp(String name)
         {
-            this.name = new Identifier(name);
+            this.name = new Symbol(name);
         }
 
         public abstract ISExp apply(IList args);
@@ -648,7 +647,7 @@ public final class TimeValues
             boolean isJsonifiable = true;
             for(ISExp exp : value.keySet())
             {
-                if(!(exp instanceof Identifier))
+                if(!(exp instanceof Symbol))
                 {
                     isJsonifiable = false;
                     break;
@@ -710,11 +709,11 @@ public final class TimeValues
 
     }
 
-    private static ISExp lookup(IList env, Identifier name)
+    private static ISExp lookup(IList env, Symbol name)
     {
         if(env == Nil.INSTANCE)
         {
-            return new Identifier("&unbound");
+            return new Symbol("&unbound");
         }
         Cons cons = (Cons) env;
         if(cons.car == MNil.INSTANCE)
@@ -743,14 +742,14 @@ public final class TimeValues
         {
             return exp;
         }
-        else if(exp instanceof Identifier)
+        else if(exp instanceof Symbol)
         {
-            return lookup(env, (Identifier) exp);
+            return lookup(env, (Symbol) exp);
         }
         else if(exp instanceof Cons)
         {
             Cons cons = (Cons) exp;
-            if(new Identifier("quote").equals(cons.car))
+            if(new Symbol("quote").equals(cons.car))
             {
                 if(cons.cdr == Nil.INSTANCE)
                 {
@@ -763,7 +762,7 @@ public final class TimeValues
                 }
                 return cdr.car;
             }
-            else if(new Identifier("lambda").equals(cons.car))
+            else if(new Symbol("lambda").equals(cons.car))
             {
                 if(cons.cdr == Nil.INSTANCE)
                 {
@@ -781,7 +780,7 @@ public final class TimeValues
                 {
                     throw new IllegalArgumentException("lambda with too many arguments: " + exp);
                 }
-                return new Cons(new Identifier("&function"), new Cons(args, new Cons(body, new Cons(env, Nil.INSTANCE))));
+                return new Cons(new Symbol("&function"), new Cons(args, new Cons(body, new Cons(env, Nil.INSTANCE))));
             }
             else
             {
@@ -800,7 +799,7 @@ public final class TimeValues
         if(func instanceof Cons)
         {
             Cons c1 = (Cons) func;
-            if(new Identifier("&function").equals(c1.car) && c1.cdr != Nil.INSTANCE)
+            if(new Symbol("&function").equals(c1.car) && c1.cdr != Nil.INSTANCE)
             {
                 Cons c2 = (Cons) c1.cdr;
                 if(c2.car instanceof IList && c2.cdr != Nil.INSTANCE)
@@ -853,9 +852,9 @@ public final class TimeValues
                     {
                         out.value(((FloatAtom) parameter).value);
                     }
-                    else if(parameter instanceof Identifier)
+                    else if(parameter instanceof Symbol)
                     {
-                        out.value(((Identifier) parameter).value);
+                        out.value(((Symbol) parameter).value);
                     }
                     else if(parameter == Nil.INSTANCE)
                     {
@@ -896,7 +895,7 @@ public final class TimeValues
                 {
                     if(string.startsWith("#"))
                     {
-                        return new Identifier(string.substring(1));
+                        return new Symbol(string.substring(1));
                     }
                     throw new JsonParseException("Unknown string: \"" + string + "\"");
                 }
@@ -915,7 +914,7 @@ public final class TimeValues
                             in.beginArray();
                             IList list = readCdr(in);
                             in.endArray();
-                            if(list instanceof Cons && ((Cons) list).car.equals(new Identifier("&map")))
+                            if(list instanceof Cons && ((Cons) list).car.equals(new Symbol("&map")))
                             {
                                 // de-sugaring the map with non-string keys
                                 ImmutableMap.Builder<ISExp, ISExp> builder = ImmutableMap.builder();
