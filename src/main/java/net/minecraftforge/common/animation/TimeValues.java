@@ -447,43 +447,6 @@ public final class TimeValues
         }
     }
 
-    public static final class BuiltinIdentifier implements IStringAtom
-    {
-        private final String value;
-
-        public BuiltinIdentifier(String value)
-        {
-            this.value = value;
-        }
-
-        @Override
-        public boolean equals(Object o)
-        {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
-            Identifier that = (Identifier) o;
-            return Objects.equal(value, that.value);
-        }
-
-        @Override
-        public int hashCode()
-        {
-            return Objects.hashCode(value);
-        }
-
-        @Override
-        public String toString()
-        {
-            return "\"&" + value + "\"";
-        }
-
-        @Override
-        public String value()
-        {
-            return "&" + value;
-        }
-    }
-
     public enum PrimOp implements IAtom
     {
         Length("length")
@@ -520,23 +483,15 @@ public final class TimeValues
             @Override
             public ISExp apply(IList args)
             {
-                if(args == Nil.INSTANCE)
+                if(!Length.apply(new Cons(args, Nil.INSTANCE)).equals(new FloatAtom(2)))
                 {
-                    throw new IllegalArgumentException("Cons with no arguments");
+                    throw new IllegalArgumentException("Cons needs 2 arguments, got: " + args);
                 }
                 Cons c1 = (Cons) args;
-                if(c1.cdr == Nil.INSTANCE)
-                {
-                    throw new IllegalArgumentException("Cons with only 1 argument");
-                }
                 Cons c2 = (Cons) c1.cdr;
                 if(!(c2.car instanceof IList))
                 {
                     throw new IllegalArgumentException("Cons needs a list as a second argument");
-                }
-                if(c2.cdr != Nil.INSTANCE)
-                {
-                    throw new IllegalArgumentException("Cons with too many arguments: " + c2.cdr);
                 }
                 return new Cons(c1.car, (IList) c2.car);
             }
@@ -546,15 +501,11 @@ public final class TimeValues
             @Override
             public ISExp apply(IList args)
             {
-                if(args == Nil.INSTANCE)
+                if(!Length.apply(new Cons(args, Nil.INSTANCE)).equals(new FloatAtom(2)))
                 {
-                    throw new IllegalArgumentException("Car with no arguments");
+                    throw new IllegalArgumentException("Car needs 1 argument, got: " + args);
                 }
                 Cons cons = (Cons) args;
-                if(cons.cdr != Nil.INSTANCE)
-                {
-                    throw new IllegalArgumentException("Car has too many arguments: " + cons);
-                }
                 if(cons.car instanceof Cons)
                 {
                     return ((Cons) cons.car).car;
@@ -567,15 +518,11 @@ public final class TimeValues
             @Override
             public ISExp apply(IList args)
             {
-                if(args == Nil.INSTANCE)
+                if(!Length.apply(new Cons(args, Nil.INSTANCE)).equals(new FloatAtom(2)))
                 {
-                   throw new IllegalArgumentException("Cdr with no arguments");
+                    throw new IllegalArgumentException("Cdr needs 1 argument, got: " + args);
                 }
                 Cons cons = (Cons) args;
-                if(cons.cdr != Nil.INSTANCE)
-                {
-                    throw new IllegalArgumentException("Cdr has too many arguments: " + cons);
-                }
                 if(cons.car instanceof Cons)
                 {
                     return ((Cons) cons.car).cdr;
@@ -932,17 +879,26 @@ public final class TimeValues
                     }
                     else if(parameter instanceof Map)
                     {
-
+                        // TODO
                     }
                 }
 
                 private IList readCdr(JsonReader in) throws IOException
                 {
-                    if(in.peek() == JsonToken.END_ARRAY)
+                    if(!in.hasNext())
                     {
                         return Nil.INSTANCE;
                     }
                     return new Cons(read(in), readCdr(in));
+                }
+
+                private ISExp parseString(String string)
+                {
+                    if(string.startsWith("#"))
+                    {
+                        return new Identifier(string.substring(1));
+                    }
+                    throw new JsonParseException("Unknown string: \"" + string + "\"");
                 }
 
                 public ISExp read(JsonReader in) throws IOException
@@ -950,19 +906,51 @@ public final class TimeValues
                     switch(in.peek())
                     {
                         case STRING:
-                            String atom = in.nextString();
-                            if(atom.startsWith("#"))
-                            {
-                                return new Identifier(atom.substring(1));
-                            }
-                            throw new JsonParseException("Unknown string: \"" + atom + "\"");
+                            return parseString(in.nextString());
+                        case NAME:
+                            return parseString(in.nextName());
                         case NUMBER:
                             return new FloatAtom((float)in.nextDouble());
                         case BEGIN_ARRAY:
                             in.beginArray();
                             IList list = readCdr(in);
                             in.endArray();
+                            if(list instanceof Cons && ((Cons) list).car.equals(new Identifier("&map")))
+                            {
+                                // de-sugaring the map with non-string keys
+                                ImmutableMap.Builder<ISExp, ISExp> builder = ImmutableMap.builder();
+                                list = ((Cons) list).cdr;
+                                while(list != Nil.INSTANCE)
+                                {
+                                    Cons c1 = (Cons) list;
+                                    Cons c2 = (Cons) c1.cdr;
+                                    builder.put(c1.car, c2.car);
+                                    list = c2.cdr;
+                                }
+                                ImmutableMap<ISExp, ISExp> value = builder.build();
+                                IMap map;
+                                if(value.isEmpty())
+                                {
+                                    map = MNil.INSTANCE;
+                                }
+                                else
+                                {
+                                    map = new Map(value);
+                                }
+                                return map;
+                            }
                             return list;
+                        case BEGIN_OBJECT:
+                            in.beginObject();
+                            ImmutableMap.Builder<ISExp, ISExp> builder = ImmutableMap.builder();
+                            while(in.hasNext())
+                            {
+                                ISExp key = read(in);
+                                ISExp value = read(in);
+                                builder.put(key, value);
+                            }
+                            in.endObject();
+                            return new Map(builder.build());
                         default:
                             throw new JsonParseException("Unexpected item in the bagging area: \"" + in.peek() + "\"");
                     }
