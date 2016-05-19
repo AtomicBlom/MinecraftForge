@@ -1,0 +1,112 @@
+["#bind",
+  {
+    // putting in time for now for testing
+    "#time": 8,
+
+    // "library"
+
+    "#apply": ["#lambda", ["#clip", "#time"], ["#lambda", ["#t"], ["#clip", ["#time", "#t"]]]],
+    "#compose": ["#lambda", ["#f", "#g"], ["#lambda", ["#t"], ["#f", ["#g", "#t"]]]],
+
+    "#range": ["#lambda", ["#f", "#g"], ["-", "#g", "#f"]],
+
+    // parameters
+
+    "#fps": 30,
+    "#walk_start": 0,
+    "#walk_loop": 10,
+    "#walk_stop": 22,
+    "#attack_steam": 30,
+    "#attack_steam_stop": 55,
+    "#attack_leap": 70,
+    "#end": 96,
+
+    "#click_start": [["#user", " click_start"], "#time"],
+    "#click_end":   [["#user", " click_end"], "#time"],
+
+    "#start_length": ["#range", "#walk_start", "#walk_loop"],
+    "#loop_length":  ["#range", "#walk_loop", "#walk_stop"],
+    "#stop_length":  ["#range", "#walk_stop", "#attack_steam"],
+    "#leap_length":  ["#range", "#attack_leap", "#end"],
+
+    "#speed": 1,
+    "#mul": ["*", "#fps", "#speed"],
+
+    "#since_click_start":      ["-*", "#time", "#click_start", "#mul"],
+    "#frames_walking":         ["-M*-", "#click_end", "#click_start", 0.1, "#mul", "#walk_loop"],
+    "#frames_walking_rounded": ["R", "#frames_walking", "#loop_length"],
+    "#next_cycle_end":         ["*++", "#click_start", "#mul", "#walk_loop", "#frames_walking_rounded"],
+
+    "#walk_start_time": ["-m+/", "#since_click_start", "#walk_start", "#start_length", "#walk_start", "#fps"],
+    "#walk_loop_time":  ["-f+/", "#since_click_start", "#walk_loop",  "#loop_length",  "#walk_loop",  "#fps"],
+    "#walk_stop_time":  ["*-m+/", "#time", "#mul", "#next_cycle_end", "#stop_length", "#walk_stop", "#fps"],
+
+    "#attack_leap_time": ["m+/", "#since_click_start", "#leap_length", "#attack_leap", "#fps"],
+
+    "#end_walk_start_clip":  ["-", "#since_click_start", "#start_length"],
+    "#end_walk_loop_clip":   ["*-",  "#time", "#mul", "#next_cycle_end"],
+    "#end_walk_stop_clip":   ["*--", "#time", "#mul", "#next_cycle_end", "#stop_length"],
+    "#end_attack_leap_clip": ["-", "#since_click_start", "#leap_length"],
+
+    // clips
+
+    "#model": ["#model_clip", " forgecommonmodelformat:block/SSSteamSpider.ogex@main"],
+    "#idle": ["#model", 0],
+    "#clip_walk_start": [
+      "#trigger_positive",
+      ["#model", "#walk_start_time"],
+      "#end_walk_start_clip",
+      " !transition:clip_walk_loop"
+    ],
+    "#clip_walk_loop": ["#model", "#walk_loop_time"],
+    "#clip_walk_loop_last": [
+      "#trigger_positive",
+      "#clip_walk_loop",
+      "#end_walk_loop_clip",
+      " !transition:clip_walk_stop"
+    ],
+    "#clip_walk_stop": [
+      "#trigger_positive",
+      ["#model", "#walk_stop_time"],
+      "#end_walk_stop_clip",
+      " !transition:idle"
+    ],
+    "#clip_attack_leap": [
+      "#trigger_positive",
+      ["#model", "#attack_leap_time"],
+      "#end_attack_leap_clip",
+      " !transition:idle"
+    ]
+  },
+  // list of evaluated values for testing
+  ["#list",
+    "#clip_attack_leap",
+    "#walk_start_time",
+    "#walk_loop_time",
+    "#walk_stop_time",
+    "#attack_leap_time",
+    "#end_walk_start_clip",
+    "#end_walk_loop_clip",
+    "#end_walk_stop_clip",
+    "#end_attack_leap_clip"
+  ]
+  /*["#asm", {
+    " states": {
+      " idle": "#idle",
+      " walk_start": "#clip_walk_start",
+      " walk_loop": "#clip_walk_loop",
+      " walk_loop_last": "#clip_walk_loop_last",
+      " walk_stop": "#clip_walk_stop",
+      " attack_leap": "#clip_attack_leap"
+    },
+    " transitions": {
+      " idle": [" walk_start", " attack_leap"],
+      " walk_start": " walk_loop",
+      " walk_loop": " walk_loop_last",
+      " walk_loop_last": " walk_stop",
+      " walk_stop": " idle",
+      " attack_leap": " idle"
+    },
+    " start_state": " idle"
+  }]*/
+]
