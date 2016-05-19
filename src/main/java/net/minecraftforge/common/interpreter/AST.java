@@ -334,6 +334,14 @@ public enum AST
                 throw new IllegalArgumentException("Cdr called not on a list");
             }
         },
+        List("list")
+        {
+            @Override
+            public ISExp apply(IList args)
+            {
+                return args;
+            }
+        },
         Map("map")
         {
             @Override

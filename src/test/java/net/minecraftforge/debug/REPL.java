@@ -45,7 +45,7 @@ public class REPL
             {
                 if(input.equals("quit"))
                 {
-                    ChannelFuture future = ctx.writeAndFlush("o/");
+                    ChannelFuture future = ctx.writeAndFlush("o/\r\n");
                     future.addListener(ChannelFutureListener.CLOSE);
                     return;
                 }
