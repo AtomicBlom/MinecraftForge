@@ -14,6 +14,7 @@ import net.minecraftforge.common.animation.ITimeValue;
 import org.apache.commons.lang3.NotImplementedException;
 
 import java.io.IOException;
+import java.util.Map;
 
 import static net.minecraftforge.common.animation.TimeValues.opsPattern;
 import static net.minecraftforge.common.interpreter.Interpreter.length;
@@ -95,7 +96,7 @@ public enum AST
         {
             if (this == o) return true;
             if (o == null || getClass() != o.getClass()) return false;
-            Symbol that = (Symbol) o;
+            StringAtom that = (StringAtom) o;
             return Objects.equal(value, that.value);
         }
 
@@ -512,7 +513,7 @@ public enum AST
             boolean isJsonifiable = true;
             for (ISExp exp : value.keySet())
             {
-                if (!(exp instanceof Symbol))
+                if (!(exp instanceof IStringAtom))
                 {
                     isJsonifiable = false;
                     break;
@@ -569,7 +570,7 @@ public enum AST
                     }
                     else if (parameter instanceof Symbol)
                     {
-                        out.value(((Symbol) parameter).value);
+                        out.value("#" + ((Symbol) parameter).value);
                     }
                     else if (parameter == Nil.INSTANCE)
                     {
@@ -593,6 +594,28 @@ public enum AST
                     }
                     else if (parameter instanceof Map)
                     {
+                        Map map = (Map) parameter;
+                        if(map.isJsonifiable)
+                        {
+                            out.beginObject();
+                            for(java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : map.value.entrySet())
+                            {
+                                out.name(((IStringAtom)entry.getKey()).value());
+                                write(out, entry.getValue());
+                            }
+                            out.endObject();
+                        }
+                        else
+                        {
+                            out.beginArray();
+                            write(out, new Symbol("$map"));
+                            for(java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : map.value.entrySet())
+                            {
+                                write(out, entry.getKey());
+                                write(out, entry.getValue());
+                            }
+                            out.endArray();
+                        }
                         // TODO
                     }
                 }
