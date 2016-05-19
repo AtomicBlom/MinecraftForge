@@ -23,11 +23,14 @@ import static net.minecraftforge.common.animation.TimeValues.opsPattern;
 public class Interpreter
 {
     public static interface ISExp {}
+
     public static interface IAtom extends ISExp {}
+
     public static interface IStringAtom extends IAtom
     {
         String value();
     }
+
     public static interface ICallableAtom extends IAtom
     {
         ISExp apply(IList args);
@@ -140,15 +143,15 @@ public class Interpreter
 
     private static int length(ISExp exp)
     {
-        if(exp == Nil.INSTANCE || exp == MNil.INSTANCE)
+        if (exp == Nil.INSTANCE || exp == MNil.INSTANCE)
         {
             return 0;
         }
-        if(exp instanceof Cons)
+        if (exp instanceof Cons)
         {
             return 1 + length(((Cons) exp).cdr);
         }
-        if(exp instanceof Map)
+        if (exp instanceof Map)
         {
             return ((Map) exp).value.size();
         }
@@ -225,25 +228,25 @@ public class Interpreter
         @Override
         public FloatAtom apply(IList args)
         {
-            if(length(args) != ops.length() + 1)
+            if (length(args) != ops.length() + 1)
             {
                 throw new IllegalArgumentException("arithmetic operator string \"" + ops + "\" needs " + ops.length() + " arguments, got " + args);
             }
             Cons cons = (Cons) args;
-            if(!(cons.car instanceof FloatAtom))
+            if (!(cons.car instanceof FloatAtom))
             {
                 throw new IllegalArgumentException("arithmetic operator needs a number, got " + cons.car);
             }
             float ret = ((FloatAtom) cons.car).value;
-            for(int i = 0; i < ops.length(); i++)
+            for (int i = 0; i < ops.length(); i++)
             {
                 cons = (Cons) cons.cdr;
-                if(!(cons.car instanceof FloatAtom))
+                if (!(cons.car instanceof FloatAtom))
                 {
                     throw new IllegalArgumentException("arithmetic operator needs a number, got " + cons.car);
                 }
                 float arg = ((FloatAtom) cons.car).value;
-                switch(ops.charAt(i))
+                switch (ops.charAt(i))
                 {
                     case '+': ret += arg; break;
                     case '-': ret -= arg; break;
@@ -251,10 +254,10 @@ public class Interpreter
                     case '/': ret /= arg; break;
                     case 'm': ret = Math.min(ret, arg); break;
                     case 'M': ret = Math.max(ret, arg); break;
-                    case 'r': ret = (float)Math.floor(ret / arg) * arg; break;
-                    case 'R': ret = (float)Math.ceil(ret / arg) * arg; break;
+                    case 'r': ret = (float) Math.floor(ret / arg) * arg; break;
+                    case 'R': ret = (float) Math.ceil(ret / arg) * arg; break;
                     case 'f': ret -= Math.floor(ret / arg) * arg; break;
-                    case 'F': ret = (float)Math.ceil(ret / arg) * arg - ret; break;
+                    case 'F': ret = (float) Math.ceil(ret / arg) * arg - ret; break;
                     default: throw new IllegalArgumentException("Unknown operator:" + ops.charAt(i));
                 }
             }
@@ -265,101 +268,103 @@ public class Interpreter
     public enum PrimOp implements ICallableAtom
     {
         Length("length")
+        {
+            @Override
+            public FloatAtom apply(IList args)
+            {
+                if (args == Nil.INSTANCE)
                 {
-                    @Override
-                    public FloatAtom apply(IList args)
-                    {
-                        if(args == Nil.INSTANCE)
-                        {
-                            throw new IllegalArgumentException("Length with no arguments");
-                        }
-                        Cons cons = (Cons) args;
-                        if(cons.cdr != Nil.INSTANCE)
-                        {
-                            throw new IllegalArgumentException("Length has too many arguments: " + cons);
-                        }
-                        return new FloatAtom(length(cons.car));
-                    }
-                },
+                    throw new IllegalArgumentException("Length with no arguments");
+                }
+                Cons cons = (Cons) args;
+                if (cons.cdr != Nil.INSTANCE)
+                {
+                    throw new IllegalArgumentException("Length has too many arguments: " + cons);
+                }
+                return new FloatAtom(length(cons.car));
+            }
+        },
         Cons("cons")
+        {
+            @Override
+            public ISExp apply(IList args)
+            {
+                if (length(args) != 2)
                 {
-                    @Override
-                    public ISExp apply(IList args)
-                    {
-                        if(length(args) != 2)
-                        {
-                            throw new IllegalArgumentException("Cons needs 2 arguments, got: " + args);
-                        }
-                        Cons c1 = (Cons) args;
-                        Cons c2 = (Cons) c1.cdr;
-                        if(!(c2.car instanceof IList))
-                        {
-                            throw new IllegalArgumentException("Cons needs a list as a second argument");
-                        }
-                        return new Cons(c1.car, (IList) c2.car);
-                    }
-                },
+                    throw new IllegalArgumentException("Cons needs 2 arguments, got: " + args);
+                }
+                Cons c1 = (Cons) args;
+                Cons c2 = (Cons) c1.cdr;
+                if (!(c2.car instanceof IList))
+                {
+                    throw new IllegalArgumentException("Cons needs a list as a second argument");
+                }
+                return new Cons(c1.car, (IList) c2.car);
+            }
+        },
         Car("car")
+        {
+            @Override
+            public ISExp apply(IList args)
+            {
+                if (length(args) != 1)
                 {
-                    @Override
-                    public ISExp apply(IList args)
-                    {
-                        if(length(args) != 1)
-                        {
-                            throw new IllegalArgumentException("Car needs 1 argument, got: " + args);
-                        }
-                        Cons cons = (Cons) args;
-                        if(cons.car instanceof Cons)
-                        {
-                            return ((Cons) cons.car).car;
-                        }
-                        throw new IllegalArgumentException("Car called not on a list");
-                    }
-                },
+                    throw new IllegalArgumentException("Car needs 1 argument, got: " + args);
+                }
+                Cons cons = (Cons) args;
+                if (cons.car instanceof Cons)
+                {
+                    return ((Cons) cons.car).car;
+                }
+                throw new IllegalArgumentException("Car called not on a list");
+            }
+        },
         Cdr("cdr")
+        {
+            @Override
+            public ISExp apply(IList args)
+            {
+                if (length(args) != 1)
                 {
-                    @Override
-                    public ISExp apply(IList args)
-                    {
-                        if(length(args) != 1)
-                        {
-                            throw new IllegalArgumentException("Cdr needs 1 argument, got: " + args);
-                        }
-                        Cons cons = (Cons) args;
-                        if(cons.car instanceof Cons)
-                        {
-                            return ((Cons) cons.car).cdr;
-                        }
-                        throw new IllegalArgumentException("Cdr called not on a list");
-                    }
-                },
+                    throw new IllegalArgumentException("Cdr needs 1 argument, got: " + args);
+                }
+                Cons cons = (Cons) args;
+                if (cons.car instanceof Cons)
+                {
+                    return ((Cons) cons.car).cdr;
+                }
+                throw new IllegalArgumentException("Cdr called not on a list");
+            }
+        },
         Map("map")
-                {
-                    @Override
-                    public ISExp apply(IList args)
-                    {
-                        throw new NotImplementedException("map");
-                    }
-                },
+        {
+            @Override
+            public ISExp apply(IList args)
+            {
+                throw new NotImplementedException("map");
+            }
+        },
         Conm("conm")
-                {
-                    @Override
-                    public ISExp apply(IList args)
-                    {
-                        throw new NotImplementedException("conm");
-                    }
-                };
+        {
+            @Override
+            public ISExp apply(IList args)
+            {
+                throw new NotImplementedException("conm");
+            }
+        };
 
         private static final ImmutableMap<Symbol, PrimOp> values;
+
         static
         {
             ImmutableMap.Builder<Symbol, PrimOp> builder = ImmutableMap.builder();
-            for(PrimOp op : values())
+            for (PrimOp op : values())
             {
                 builder.put(op.name, op);
             }
             values = builder.build();
         }
+
         private final Symbol name;
 
         PrimOp(String name)
@@ -408,12 +413,12 @@ public class Interpreter
 
         public FloatAtom apply(IList args)
         {
-            if(length(args) != 1)
+            if (length(args) != 1)
             {
                 throw new IllegalArgumentException("User parameter \"" + name + "\" needs 1 argument, got " + args);
             }
             Cons cons = (Cons) args;
-            if(cons.car instanceof FloatAtom)
+            if (cons.car instanceof FloatAtom)
             {
                 return new FloatAtom(parameter.apply(((FloatAtom) cons.car).value));
             }
@@ -451,8 +456,7 @@ public class Interpreter
             if (this == o) return true;
             if (o == null || getClass() != o.getClass()) return false;
             Cons cons = (Cons) o;
-            return Objects.equal(car, cons.car) &&
-                    Objects.equal(cdr, cons.cdr);
+            return Objects.equal(car, cons.car) && Objects.equal(cdr, cons.cdr);
         }
 
         @Override
@@ -463,11 +467,11 @@ public class Interpreter
 
         private String cdrString()
         {
-            if(cdr == Nil.INSTANCE)
+            if (cdr == Nil.INSTANCE)
             {
                 return "";
             }
-            Cons cdr = (Cons)this.cdr;
+            Cons cdr = (Cons) this.cdr;
             return ", " + cdr.car.toString() + cdr.cdrString();
         }
 
@@ -483,6 +487,7 @@ public class Interpreter
     public static enum MNil implements IMap
     {
         INSTANCE;
+
         @Override
         public String toString()
         {
@@ -499,9 +504,9 @@ public class Interpreter
         {
             this.value = value;
             boolean isJsonifiable = true;
-            for(ISExp exp : value.keySet())
+            for (ISExp exp : value.keySet())
             {
-                if(!(exp instanceof Symbol))
+                if (!(exp instanceof Symbol))
                 {
                     isJsonifiable = false;
                     break;
@@ -528,7 +533,7 @@ public class Interpreter
         @Override
         public String toString()
         {
-            if(isJsonifiable)
+            if (isJsonifiable)
             {
                 return "{ " + Joiner.on(", ").withKeyValueSeparator(": ").join(value) + " }";
             }
@@ -538,20 +543,20 @@ public class Interpreter
 
     private static IList bind(IList argNames, IList args, IList env)
     {
-        if(length(argNames) != length(args))
+        if (length(argNames) != length(args))
         {
             throw new IllegalArgumentException("called bind with lists of different length");
         }
         ImmutableMap.Builder<ISExp, ISExp> builder = ImmutableMap.builder();
-        while(argNames != Nil.INSTANCE)
+        while (argNames != Nil.INSTANCE)
         {
-            builder.put(((Cons)argNames).car, ((Cons)args).car);
+            builder.put(((Cons) argNames).car, ((Cons) args).car);
             argNames = ((Cons) argNames).cdr;
             args = ((Cons) args).cdr;
         }
         ImmutableMap<ISExp, ISExp> frame = builder.build();
         IMap map;
-        if(frame.isEmpty())
+        if (frame.isEmpty())
         {
             map = MNil.INSTANCE;
         }
@@ -565,19 +570,19 @@ public class Interpreter
 
     private static ISExp lookup(IList env, Symbol name)
     {
-        if(env == Nil.INSTANCE)
+        if (env == Nil.INSTANCE)
         {
             return new Symbol("&unbound");
         }
         Cons cons = (Cons) env;
-        if(cons.car == MNil.INSTANCE)
+        if (cons.car == MNil.INSTANCE)
         {
             return lookup(cons.cdr, name);
         }
-        if(cons.car instanceof Map)
+        if (cons.car instanceof Map)
         {
             Map map = (Map) cons.car;
-            if(map.value.containsKey(name))
+            if (map.value.containsKey(name))
             {
                 return map.value.get(name);
             }
@@ -593,26 +598,26 @@ public class Interpreter
 
     private static ISExp eval(ISExp exp, IList env, Function<? super String, ? extends ITimeValue> userParameters)
     {
-        if(exp instanceof FloatAtom)
+        if (exp instanceof FloatAtom)
         {
             return exp;
         }
-        if(exp instanceof StringAtom)
+        if (exp instanceof StringAtom)
         {
             return exp;
         }
-        else if(exp instanceof Symbol)
+        else if (exp instanceof Symbol)
         {
             return lookup(env, (Symbol) exp);
         }
-        else if(exp instanceof ArithmSymbol)
+        else if (exp instanceof ArithmSymbol)
         {
             return new ArithmOp(((ArithmSymbol) exp).ops);
         }
-        else if(exp instanceof Cons)
+        else if (exp instanceof Cons)
         {
             Cons cons = (Cons) exp;
-            if(cons.car instanceof Symbol)
+            if (cons.car instanceof Symbol)
             {
                 String name = ((Symbol) cons.car).value;
                 if (name == "quote")
@@ -675,26 +680,26 @@ public class Interpreter
 
     private static ISExp apply(ISExp func, IList args, Function<? super String, ? extends ITimeValue> userParameters)
     {
-        if(func instanceof ICallableAtom)
+        if (func instanceof ICallableAtom)
         {
-            return ((ICallableAtom)func).apply(args);
+            return ((ICallableAtom) func).apply(args);
         }
-        if(func instanceof Cons)
+        if (func instanceof Cons)
         {
             Cons c1 = (Cons) func;
-            if(new Symbol("&function").equals(c1.car) && c1.cdr != Nil.INSTANCE)
+            if (new Symbol("&function").equals(c1.car) && c1.cdr != Nil.INSTANCE)
             {
                 Cons c2 = (Cons) c1.cdr;
-                if(c2.car instanceof IList && c2.cdr != Nil.INSTANCE)
+                if (c2.car instanceof IList && c2.cdr != Nil.INSTANCE)
                 {
                     IList argNames = (IList) c2.car;
                     Cons c3 = (Cons) c2.cdr;
                     ISExp body = c3.car;
-                    if(c3.cdr != Nil.INSTANCE)
+                    if (c3.cdr != Nil.INSTANCE)
                     {
                         Cons c4 = (Cons) c3.cdr;
                         ISExp env = c4.car;
-                        if(env instanceof IList && c4.cdr == Nil.INSTANCE)
+                        if (env instanceof IList && c4.cdr == Nil.INSTANCE)
                         {
                             return eval(body, bind(argNames, args, (IList) env), userParameters);
                         }
@@ -707,7 +712,7 @@ public class Interpreter
 
     private static IList evlis(IList list, IList env, Function<? super String, ? extends ITimeValue> userParameters)
     {
-        if(list == Nil.INSTANCE)
+        if (list == Nil.INSTANCE)
         {
             return Nil.INSTANCE;
         }
@@ -731,35 +736,35 @@ public class Interpreter
             {
                 public void write(JsonWriter out, ISExp parameter) throws IOException
                 {
-                    if(parameter instanceof FloatAtom)
+                    if (parameter instanceof FloatAtom)
                     {
                         out.value(((FloatAtom) parameter).value);
                     }
-                    else if(parameter instanceof Symbol)
+                    else if (parameter instanceof Symbol)
                     {
                         out.value(((Symbol) parameter).value);
                     }
-                    else if(parameter == Nil.INSTANCE)
+                    else if (parameter == Nil.INSTANCE)
                     {
                         out.beginArray();
                         out.endArray();
                     }
-                    else if(parameter instanceof Cons)
+                    else if (parameter instanceof Cons)
                     {
                         out.beginArray();
                         write(out, ((Cons) parameter).car);
-                        for(IList cdr = ((Cons) parameter).cdr; cdr instanceof Cons; cdr = ((Cons) cdr).cdr)
+                        for (IList cdr = ((Cons) parameter).cdr; cdr instanceof Cons; cdr = ((Cons) cdr).cdr)
                         {
                             write(out, ((Cons) cdr).car);
                         }
                         out.endArray();
                     }
-                    else if(parameter == MNil.INSTANCE)
+                    else if (parameter == MNil.INSTANCE)
                     {
                         out.beginObject();
                         out.endObject();
                     }
-                    else if(parameter instanceof Map)
+                    else if (parameter instanceof Map)
                     {
                         // TODO
                     }
@@ -767,7 +772,7 @@ public class Interpreter
 
                 private IList readCdr(JsonReader in) throws IOException
                 {
-                    if(!in.hasNext())
+                    if (!in.hasNext())
                     {
                         return Nil.INSTANCE;
                     }
@@ -776,15 +781,15 @@ public class Interpreter
 
                 private ISExp parseString(String string)
                 {
-                    if(string.startsWith("#"))
+                    if (string.startsWith("#"))
                     {
                         return new Symbol(string.substring(1));
                     }
-                    if(string.startsWith(" "))
+                    if (string.startsWith(" "))
                     {
                         return new StringAtom(string.substring(1));
                     }
-                    if(opsPattern.matcher(string).matches())
+                    if (opsPattern.matcher(string).matches())
                     {
                         return new ArithmOp(string);
                     }
@@ -793,19 +798,19 @@ public class Interpreter
 
                 public ISExp read(JsonReader in) throws IOException
                 {
-                    switch(in.peek())
+                    switch (in.peek())
                     {
                         case STRING:
                             return parseString(in.nextString());
                         case NAME:
                             return parseString(in.nextName());
                         case NUMBER:
-                            return new FloatAtom((float)in.nextDouble());
+                            return new FloatAtom((float) in.nextDouble());
                         case BEGIN_ARRAY:
                             in.beginArray();
                             IList list = readCdr(in);
                             in.endArray();
-                            if(list instanceof Cons)
+                            if (list instanceof Cons)
                             {
                                 Cons cons = (Cons) list;
                                 if (cons.car.equals(new Symbol("&map")))
@@ -825,7 +830,8 @@ public class Interpreter
                                     if (value.isEmpty())
                                     {
                                         map = MNil.INSTANCE;
-                                    } else
+                                    }
+                                    else
                                     {
                                         map = new Map(value);
                                     }
@@ -836,7 +842,7 @@ public class Interpreter
                         case BEGIN_OBJECT:
                             in.beginObject();
                             ImmutableMap.Builder<ISExp, ISExp> builder = ImmutableMap.builder();
-                            while(in.hasNext())
+                            while (in.hasNext())
                             {
                                 ISExp key = read(in);
                                 ISExp value = read(in);
