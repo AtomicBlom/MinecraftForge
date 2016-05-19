@@ -18,6 +18,7 @@ import java.util.Map;
 
 import static net.minecraftforge.common.animation.TimeValues.opsPattern;
 import static net.minecraftforge.common.interpreter.Interpreter.length;
+import static net.minecraftforge.common.interpreter.Interpreter.mapSymbol;
 
 /**
  * Created by rainwarrior on 5/19/16.
@@ -608,7 +609,7 @@ public enum AST
                         else
                         {
                             out.beginArray();
-                            write(out, new Symbol("$map"));
+                            write(out, mapSymbol);
                             for(java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : map.value.entrySet())
                             {
                                 write(out, entry.getKey());
@@ -663,7 +664,7 @@ public enum AST
                             if (list instanceof Cons)
                             {
                                 Cons cons = (Cons) list;
-                                if (cons.car.equals(new Symbol("&map")))
+                                if (cons.car.equals(mapSymbol))
                                 {
                                     // de-sugaring the map with non-string keys
                                     ImmutableMap.Builder<ISExp, ISExp> builder = ImmutableMap.builder();

@@ -24,6 +24,8 @@ public class Interpreter
     }
 
     private static final Symbol labelSymbol = new Symbol("&labeled");
+    private static final Symbol functionSymbol = new Symbol("&function");
+    static final Symbol mapSymbol = new Symbol("&map");
 
     static int length(ISExp exp)
     {
@@ -71,7 +73,7 @@ public class Interpreter
 
     private static ISExp makeFunction(IList args, ISExp body, IList env)
     {
-        return new Cons(new Symbol("&function"), new Cons(args, new Cons(body, new Cons(env, Nil.INSTANCE))));
+        return new Cons(functionSymbol, new Cons(args, new Cons(body, new Cons(env, Nil.INSTANCE))));
     }
 
     private static void addLabel(ImmutableMap.Builder<Symbol, ISExp> frame, ISExp key, ISExp value)
@@ -271,7 +273,7 @@ public class Interpreter
         if (func instanceof Cons)
         {
             Cons c1 = (Cons) func;
-            if (new Symbol("&function").equals(c1.car) && c1.cdr != Nil.INSTANCE)
+            if (functionSymbol.equals(c1.car) && c1.cdr != Nil.INSTANCE)
             {
                 Cons c2 = (Cons) c1.cdr;
                 if (c2.car instanceof IList && c2.cdr != Nil.INSTANCE)
