@@ -17,7 +17,9 @@ import io.netty.handler.codec.string.StringEncoder;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 import net.minecraftforge.common.animation.ITimeValue;
-import net.minecraftforge.common.animation.Interpreter;
+import net.minecraftforge.common.interpreter.AST.ISExp;
+import net.minecraftforge.common.interpreter.AST.SExpTypeAdapterFactory;
+import net.minecraftforge.common.interpreter.Interpreter;
 import net.minecraftforge.common.animation.TimeValues;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 
@@ -28,7 +30,9 @@ public class REPL
         ITimeValue dummyValue = new TimeValues.VariableValue(5);
         final Function<Object, ITimeValue> getter = Functions.constant(dummyValue);
 
-        final Gson gson = new GsonBuilder().registerTypeAdapterFactory(Interpreter.SExpTypeAdapterFactory.INSTANCE).create();
+        final Interpreter repl = new Interpreter(getter);
+
+        final Gson gson = new GsonBuilder().registerTypeAdapterFactory(SExpTypeAdapterFactory.INSTANCE).create();
 
         final StringDecoder decoder = new StringDecoder(Charsets.UTF_8);
         final StringEncoder encoder = new StringEncoder(Charsets.UTF_8);
@@ -48,8 +52,8 @@ public class REPL
                 if(!input.isEmpty()) try
                 {
                     System.out.println("input: " + input);
-                    Interpreter.ISExp exp = gson.fromJson(input, Interpreter.ISExp.class);
-                    Interpreter.ISExp result = Interpreter.eval(exp, getter);
+                    ISExp exp = gson.fromJson(input, ISExp.class);
+                    ISExp result = repl.eval(exp);
                     ctx.writeAndFlush(result.toString() + "\r\n");
                 }
                 catch(Exception e)

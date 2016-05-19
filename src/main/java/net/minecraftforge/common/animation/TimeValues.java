@@ -20,7 +20,7 @@ import com.google.gson.stream.JsonWriter;
  */
 public final class TimeValues
 {
-    static final Pattern opsPattern = Pattern.compile("[+\\-*/mMrRfF]+");
+    public static final Pattern opsPattern = Pattern.compile("[+\\-*/mMrRfF]+");
 
     public static enum IdentityValue implements ITimeValue, IStringSerializable
     {

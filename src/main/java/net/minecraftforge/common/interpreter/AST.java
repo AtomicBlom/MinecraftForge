@@ -1,39 +1,45 @@
-package net.minecraftforge.common.animation;
+package net.minecraftforge.common.interpreter;
 
-import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableMap;
-import com.google.gson.*;
+import com.google.gson.Gson;
+import com.google.gson.JsonParseException;
+import com.google.gson.TypeAdapter;
+import com.google.gson.TypeAdapterFactory;
 import com.google.gson.reflect.TypeToken;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
+import net.minecraftforge.common.animation.ITimeValue;
 import org.apache.commons.lang3.NotImplementedException;
 
 import java.io.IOException;
 
 import static net.minecraftforge.common.animation.TimeValues.opsPattern;
+import static net.minecraftforge.common.interpreter.Interpreter.length;
 
 /**
- * Created by rainwarrior on 5/18/16.
+ * Created by rainwarrior on 5/19/16.
  */
-public class Interpreter
+public enum AST
 {
+    ;
+
     public static interface ISExp {}
 
-    private static interface IAtom extends ISExp {}
+    static interface IAtom extends ISExp {}
 
-    private static interface IStringAtom extends IAtom
+    static interface IStringAtom extends IAtom
     {
         String value();
     }
 
-    private static interface ICallableAtom extends IAtom
+    static interface ICallableAtom extends IAtom
     {
         ISExp apply(IList args);
     }
 
-    private static enum Unbound implements IAtom
+    static enum Unbound implements IAtom
     {
         INSTANCE;
 
@@ -44,7 +50,7 @@ public class Interpreter
         }
     }
 
-    private static final class FloatAtom implements IAtom
+    static final class FloatAtom implements IAtom
     {
         private final float value;
 
@@ -75,9 +81,9 @@ public class Interpreter
         }
     }
 
-    private static final class StringAtom implements IStringAtom
+    static final class StringAtom implements IStringAtom
     {
-        private final String value;
+        final String value;
 
         private StringAtom(String value)
         {
@@ -112,11 +118,11 @@ public class Interpreter
         }
     }
 
-    private static final class Symbol implements IStringAtom
+    static final class Symbol implements IStringAtom
     {
-        private final String value;
+        final String value;
 
-        private Symbol(String value)
+        Symbol(String value)
         {
             this.value = value.intern();
         }
@@ -150,24 +156,7 @@ public class Interpreter
         }
     }
 
-    private static int length(ISExp exp)
-    {
-        if (exp == Nil.INSTANCE || exp == MNil.INSTANCE)
-        {
-            return 0;
-        }
-        if (exp instanceof Cons)
-        {
-            return 1 + length(((Cons) exp).cdr);
-        }
-        if (exp instanceof Map)
-        {
-            return ((Map) exp).value.size();
-        }
-        throw new IllegalArgumentException("Length called neither on a list nor on a map");
-    }
-
-    private static class ArithmSymbol implements IStringAtom
+    static class ArithmSymbol implements IStringAtom
     {
         private final String ops;
 
@@ -204,13 +193,13 @@ public class Interpreter
         }
     }
 
-    private static class ArithmOp implements ICallableAtom
+    static class ArithmOp implements ICallableAtom
     {
         private final String ops;
 
-        ArithmOp(String ops)
+        ArithmOp(ArithmSymbol ops)
         {
-            this.ops = ops;
+            this.ops = ops.ops;
         }
 
         @Override
@@ -274,7 +263,7 @@ public class Interpreter
         }
     }
 
-    private enum PrimOp implements ICallableAtom
+    enum PrimOp implements ICallableAtom
     {
         Length("length")
         {
@@ -362,7 +351,7 @@ public class Interpreter
             }
         };
 
-        private static final ImmutableMap<Symbol, PrimOp> values;
+        static final ImmutableMap<Symbol, PrimOp> values;
 
         static
         {
@@ -388,12 +377,12 @@ public class Interpreter
         }
     }
 
-    private static class User implements ICallableAtom
+    static class User implements ICallableAtom
     {
         private final String name;
         private final ITimeValue parameter;
 
-        private User(String name, ITimeValue parameter)
+        User(String name, ITimeValue parameter)
         {
             this.name = name;
             this.parameter = parameter;
@@ -435,9 +424,9 @@ public class Interpreter
         }
     }
 
-    private static interface IList extends ISExp {}
+    static interface IList extends ISExp {}
 
-    private static enum Nil implements IList
+    static enum Nil implements IList
     {
         INSTANCE;
 
@@ -448,12 +437,12 @@ public class Interpreter
         }
     }
 
-    private static final class Cons implements IList
+    static final class Cons implements IList
     {
-        private final ISExp car;
-        private final IList cdr;
+        final ISExp car;
+        final IList cdr;
 
-        private Cons(ISExp car, IList cdr)
+        Cons(ISExp car, IList cdr)
         {
             this.car = car;
             this.cdr = cdr;
@@ -491,9 +480,9 @@ public class Interpreter
         }
     }
 
-    private static interface IMap extends ISExp {}
+    static interface IMap extends ISExp {}
 
-    private static enum MNil implements IMap
+    static enum MNil implements IMap
     {
         INSTANCE;
 
@@ -504,9 +493,9 @@ public class Interpreter
         }
     }
 
-    public static final class Map implements IMap
+    static final class Map implements IMap
     {
-        private final ImmutableMap<? extends ISExp, ? extends ISExp> value;
+        final ImmutableMap<? extends ISExp, ? extends ISExp> value;
         private final transient boolean isJsonifiable;
 
         public Map(ImmutableMap<? extends ISExp, ? extends ISExp> value)
@@ -548,186 +537,6 @@ public class Interpreter
             }
             return "[\"#&map\", " + Joiner.on(", ").withKeyValueSeparator(", ").join(value) + "]";
         }
-    }
-
-    private static IList bind(IList argNames, IList args, IList env)
-    {
-        if (length(argNames) != length(args))
-        {
-            throw new IllegalArgumentException("called bind with lists of different length");
-        }
-        ImmutableMap.Builder<ISExp, ISExp> builder = ImmutableMap.builder();
-        while (argNames != Nil.INSTANCE)
-        {
-            builder.put(((Cons) argNames).car, ((Cons) args).car);
-            argNames = ((Cons) argNames).cdr;
-            args = ((Cons) args).cdr;
-        }
-        ImmutableMap<ISExp, ISExp> frame = builder.build();
-        IMap map;
-        if (frame.isEmpty())
-        {
-            map = MNil.INSTANCE;
-        }
-        else
-        {
-            map = new Map(frame);
-        }
-        return new Cons(map, env);
-
-    }
-
-    private static ISExp lookup(IList env, Symbol name)
-    {
-        if (env == Nil.INSTANCE)
-        {
-            return Unbound.INSTANCE;
-        }
-        Cons cons = (Cons) env;
-        if (cons.car == MNil.INSTANCE)
-        {
-            return lookup(cons.cdr, name);
-        }
-        if (cons.car instanceof Map)
-        {
-            Map map = (Map) cons.car;
-            if (map.value.containsKey(name))
-            {
-                return map.value.get(name);
-            }
-            return lookup(cons.cdr, name);
-        }
-        throw new IllegalArgumentException("lookup called with a list that has something other than a map:" + cons.car);
-    }
-
-    public static ISExp eval(ISExp exp, Function<? super String, ? extends ITimeValue> userParameters)
-    {
-        return eval(exp, new Cons(new Map(PrimOp.values), Nil.INSTANCE), userParameters);
-    }
-
-    @SuppressWarnings("StringEquality")
-    private static ISExp eval(ISExp exp, IList env, Function<? super String, ? extends ITimeValue> userParameters)
-    {
-        if (exp instanceof FloatAtom)
-        {
-            return exp;
-        }
-        if (exp instanceof StringAtom)
-        {
-            return exp;
-        }
-        else if (exp instanceof Symbol)
-        {
-            return lookup(env, (Symbol) exp);
-        }
-        else if (exp instanceof ArithmSymbol)
-        {
-            return new ArithmOp(((ArithmSymbol) exp).ops);
-        }
-        else if (exp instanceof Cons)
-        {
-            Cons cons = (Cons) exp;
-            if (cons.car instanceof Symbol)
-            {
-                String name = ((Symbol) cons.car).value;
-                if (name == "quote")
-                {
-                    if (cons.cdr == Nil.INSTANCE)
-                    {
-                        throw new IllegalArgumentException("quote with no arguments");
-                    }
-                    Cons cdr = (Cons) cons.cdr;
-                    if (cdr.cdr != Nil.INSTANCE)
-                    {
-                        throw new IllegalArgumentException("quote with too many arguments: " + exp);
-                    }
-                    return cdr.car;
-                }
-                else if (name == "lambda")
-                {
-                    if (cons.cdr == Nil.INSTANCE)
-                    {
-                        throw new IllegalArgumentException("lambda with no arguments");
-                    }
-                    Cons c1 = (Cons) cons.cdr;
-                    ISExp args = c1.car;
-                    if (c1.cdr == Nil.INSTANCE)
-                    {
-                        throw new IllegalArgumentException("lambda with 1 argument");
-                    }
-                    Cons c2 = (Cons) c1.cdr;
-                    ISExp body = c2.car;
-                    if (c2.cdr != Nil.INSTANCE)
-                    {
-                        throw new IllegalArgumentException("lambda with too many arguments: " + exp);
-                    }
-                    return new Cons(new Symbol("&function"), new Cons(args, new Cons(body, new Cons(env, Nil.INSTANCE))));
-                }
-                else if (name == "user")
-                {
-                    if (length(cons.cdr) != 1)
-                    {
-                        throw new IllegalArgumentException("user needs 1 argument, got: " + cons.cdr);
-                    }
-                    Cons c2 = (Cons) cons.cdr;
-                    if (c2.car instanceof StringAtom)
-                    {
-                        String parameterName = ((StringAtom) c2.car).value;
-                        ITimeValue parameter = userParameters.apply(parameterName);
-                        if (parameter == null)
-                        {
-                            return Unbound.INSTANCE;
-                        }
-                        return new User(parameterName, parameter);
-                    }
-                    throw new IllegalArgumentException("user needs string argument, got: " + cons.car);
-                }
-            }
-            return apply(eval(cons.car, env, userParameters), evlis(cons.cdr, env, userParameters), userParameters);
-        }
-        throw new IllegalStateException("eval of " + exp);
-    }
-
-    private static ISExp apply(ISExp func, IList args, Function<? super String, ? extends ITimeValue> userParameters)
-    {
-        if (func instanceof ICallableAtom)
-        {
-            return ((ICallableAtom) func).apply(args);
-        }
-        if (func instanceof Cons)
-        {
-            Cons c1 = (Cons) func;
-            if (new Symbol("&function").equals(c1.car) && c1.cdr != Nil.INSTANCE)
-            {
-                Cons c2 = (Cons) c1.cdr;
-                if (c2.car instanceof IList && c2.cdr != Nil.INSTANCE)
-                {
-                    IList argNames = (IList) c2.car;
-                    Cons c3 = (Cons) c2.cdr;
-                    ISExp body = c3.car;
-                    if (c3.cdr != Nil.INSTANCE)
-                    {
-                        Cons c4 = (Cons) c3.cdr;
-                        ISExp env = c4.car;
-                        if (env instanceof IList && c4.cdr == Nil.INSTANCE)
-                        {
-                            return eval(body, bind(argNames, args, (IList) env), userParameters);
-                        }
-                    }
-                }
-            }
-        }
-        throw new IllegalArgumentException("Don't know how to apply: " + func);
-    }
-
-    private static IList evlis(IList list, IList env, Function<? super String, ? extends ITimeValue> userParameters)
-    {
-        if (list == Nil.INSTANCE)
-        {
-            return Nil.INSTANCE;
-        }
-        Cons cons = (Cons) list;
-        return new Cons(eval(cons.car, env, userParameters), evlis(cons.cdr, env, userParameters));
     }
 
     public static enum SExpTypeAdapterFactory implements TypeAdapterFactory
