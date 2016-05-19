@@ -4,10 +4,7 @@ import com.google.common.base.Function;
 import com.google.common.base.Joiner;
 import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableMap;
-import com.google.gson.Gson;
-import com.google.gson.JsonParseException;
-import com.google.gson.TypeAdapter;
-import com.google.gson.TypeAdapterFactory;
+import com.google.gson.*;
 import com.google.gson.reflect.TypeToken;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
@@ -24,23 +21,34 @@ public class Interpreter
 {
     public static interface ISExp {}
 
-    public static interface IAtom extends ISExp {}
+    private static interface IAtom extends ISExp {}
 
-    public static interface IStringAtom extends IAtom
+    private static interface IStringAtom extends IAtom
     {
         String value();
     }
 
-    public static interface ICallableAtom extends IAtom
+    private static interface ICallableAtom extends IAtom
     {
         ISExp apply(IList args);
     }
 
-    public static final class FloatAtom implements IAtom
+    private static enum Unbound implements IAtom
+    {
+        INSTANCE;
+
+        @Override
+        public String toString()
+        {
+            return "&unbound";
+        }
+    }
+
+    private static final class FloatAtom implements IAtom
     {
         private final float value;
 
-        public FloatAtom(float value)
+        private FloatAtom(float value)
         {
             this.value = value;
         }
@@ -67,11 +75,11 @@ public class Interpreter
         }
     }
 
-    public static final class StringAtom implements IStringAtom
+    private static final class StringAtom implements IStringAtom
     {
         private final String value;
 
-        public StringAtom(String value)
+        private StringAtom(String value)
         {
             this.value = value;
         }
@@ -104,15 +112,16 @@ public class Interpreter
         }
     }
 
-    public static final class Symbol implements IStringAtom
+    private static final class Symbol implements IStringAtom
     {
         private final String value;
 
-        public Symbol(String value)
+        private Symbol(String value)
         {
             this.value = value.intern();
         }
 
+        @SuppressWarnings("StringEquality")
         @Override
         public boolean equals(Object o)
         {
@@ -158,11 +167,11 @@ public class Interpreter
         throw new IllegalArgumentException("Length called neither on a list nor on a map");
     }
 
-    public static class ArithmSymbol implements IStringAtom
+    private static class ArithmSymbol implements IStringAtom
     {
         private final String ops;
 
-        public ArithmSymbol(String ops)
+        private ArithmSymbol(String ops)
         {
             this.ops = ops;
         }
@@ -195,7 +204,7 @@ public class Interpreter
         }
     }
 
-    public static class ArithmOp implements ICallableAtom
+    private static class ArithmOp implements ICallableAtom
     {
         private final String ops;
 
@@ -265,7 +274,7 @@ public class Interpreter
         }
     }
 
-    public enum PrimOp implements ICallableAtom
+    private enum PrimOp implements ICallableAtom
     {
         Length("length")
         {
@@ -379,12 +388,12 @@ public class Interpreter
         }
     }
 
-    public static class User implements ICallableAtom
+    private static class User implements ICallableAtom
     {
         private final String name;
         private final ITimeValue parameter;
 
-        public User(String name, ITimeValue parameter)
+        private User(String name, ITimeValue parameter)
         {
             this.name = name;
             this.parameter = parameter;
@@ -426,9 +435,9 @@ public class Interpreter
         }
     }
 
-    public static interface IList extends ISExp {}
+    private static interface IList extends ISExp {}
 
-    public static enum Nil implements IList
+    private static enum Nil implements IList
     {
         INSTANCE;
 
@@ -439,12 +448,12 @@ public class Interpreter
         }
     }
 
-    public static final class Cons implements IList
+    private static final class Cons implements IList
     {
         private final ISExp car;
         private final IList cdr;
 
-        public Cons(ISExp car, IList cdr)
+        private Cons(ISExp car, IList cdr)
         {
             this.car = car;
             this.cdr = cdr;
@@ -482,9 +491,9 @@ public class Interpreter
         }
     }
 
-    public static interface IMap extends ISExp {}
+    private static interface IMap extends ISExp {}
 
-    public static enum MNil implements IMap
+    private static enum MNil implements IMap
     {
         INSTANCE;
 
@@ -572,7 +581,7 @@ public class Interpreter
     {
         if (env == Nil.INSTANCE)
         {
-            return new Symbol("&unbound");
+            return Unbound.INSTANCE;
         }
         Cons cons = (Cons) env;
         if (cons.car == MNil.INSTANCE)
@@ -596,6 +605,7 @@ public class Interpreter
         return eval(exp, new Cons(new Map(PrimOp.values), Nil.INSTANCE), userParameters);
     }
 
+    @SuppressWarnings("StringEquality")
     private static ISExp eval(ISExp exp, IList env, Function<? super String, ? extends ITimeValue> userParameters)
     {
         if (exp instanceof FloatAtom)
@@ -666,7 +676,7 @@ public class Interpreter
                         ITimeValue parameter = userParameters.apply(parameterName);
                         if (parameter == null)
                         {
-                            return new Symbol("&unbound");
+                            return Unbound.INSTANCE;
                         }
                         return new User(parameterName, parameter);
                     }
@@ -791,7 +801,7 @@ public class Interpreter
                     }
                     if (opsPattern.matcher(string).matches())
                     {
-                        return new ArithmOp(string);
+                        return new ArithmSymbol(string);
                     }
                     throw new JsonParseException("Unknown string: \"" + string + "\"");
                 }
