@@ -1,0 +1,25 @@
+[
+  "#bind",
+  {
+    "#time": 10234.684,
+    "#last_ai_trigger_time": 10232.65
+  },
+  [
+    "#bind",
+    {
+      "#fps": 30,
+      "#speed": 1,
+      "#attack_leap": 70, // Frame 70
+      "#end": 95, //End of animation
+
+
+      "#mul": ["*", "#fps", "#speed"],
+      "#range": ["#lambda", ["#a", "#b"], ["-", "#b", "#a"]],
+      "#since_ai_trigger_time":      ["-*", "#time", "#last_ai_trigger_time", "#mul"],
+
+      "#leap_length": ["#range", "#attack_leap", "#end"],
+      "#attack_leap_time": ["m+/", "#since_ai_trigger_time", "#leap_length", "#attack_leap", "#fps"]
+    },
+    "#since_ai_trigger_time"
+  ]
+]
