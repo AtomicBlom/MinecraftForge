@@ -5,6 +5,27 @@
 
     // "library"
 
+    // trivial map representation for now
+    "#model_clip": ["#lambda",
+      ["#name"],
+      ["#lambda",
+        ["#time"],
+        {
+          " name": "#name",
+          " time": "#time"
+        }
+      ]
+    ],
+    "#trigger_positive": ["#lambda",
+      ["#clip", "#parameter", "#event"],
+      {
+        " clip": "#clip",
+        " name": "#name",
+        " time": "#time"
+      }
+    ],
+    "#asm": ["#lambda", ["#x"], "#x"],
+
     "#apply": ["#lambda", ["#clip", "#time"], ["#lambda", ["#t"], ["#clip", ["#time", "#t"]]]],
     "#compose": ["#lambda", ["#f", "#g"], ["#lambda", ["#t"], ["#f", ["#g", "#t"]]]],
 
@@ -78,18 +99,7 @@
       " !transition:idle"
     ]
   },
-  // list of evaluated values for testing
-  ["#list",
-    "#walk_start_time",
-    "#walk_loop_time",
-    "#walk_stop_time",
-    "#attack_leap_time",
-    "#end_walk_start_clip",
-    "#end_walk_loop_clip",
-    "#end_walk_stop_clip",
-    "#end_attack_leap_clip"
-  ]
-  /*["#asm", {
+  ["#asm", {
     " states": {
       " idle": "#idle",
       " walk_start": "#clip_walk_start",
@@ -99,7 +109,7 @@
       " attack_leap": "#clip_attack_leap"
     },
     " transitions": {
-      " idle": [" walk_start", " attack_leap"],
+      " idle": ["#list", " walk_start", " attack_leap"],
       " walk_start": " walk_loop",
       " walk_loop": " walk_loop_last",
       " walk_loop_last": " walk_stop",
@@ -107,5 +117,5 @@
       " attack_leap": " idle"
     },
     " start_state": " idle"
-  }]*/
+  }]
 ]
