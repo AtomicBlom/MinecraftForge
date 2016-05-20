@@ -80,7 +80,6 @@
   },
   // list of evaluated values for testing
   ["#list",
-    "#clip_attack_leap",
     "#walk_start_time",
     "#walk_loop_time",
     "#walk_stop_time",

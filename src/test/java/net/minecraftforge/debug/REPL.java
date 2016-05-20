@@ -24,6 +24,7 @@ import net.minecraftforge.common.interpreter.Interpreter;
 import net.minecraftforge.common.animation.TimeValues;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 
+import java.io.FileReader;
 import java.util.Arrays;
 
 public class REPL
@@ -63,7 +64,16 @@ public class REPL
                 if(!input.isEmpty()) try
                 {
                     System.out.println("input: " + input);
-                    ISExp exp = gson.fromJson(input, ISExp.class);
+                    ISExp exp;
+                    if(input.startsWith("eval "))
+                    {
+                        String name = input.substring("eval ".length());
+                        exp = gson.fromJson(new FileReader(name), ISExp.class);
+                    }
+                    else
+                    {
+                        exp = gson.fromJson(input, ISExp.class);
+                    }
                     ISExp result = repl.eval(exp);
                     ctx.write(result.toString() + "\r\n");
                 }
