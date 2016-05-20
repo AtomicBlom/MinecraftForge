@@ -20,8 +20,8 @@
       ["#clip", "#parameter", "#event"],
       {
         " clip": "#clip",
-        " name": "#name",
-        " time": "#time"
+        " parameter": "#parameter",
+        " event": "#event"
       }
     ],
     "#asm": ["#lambda", ["#x"], "#x"],
