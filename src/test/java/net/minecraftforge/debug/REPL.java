@@ -25,10 +25,11 @@ import net.minecraftforge.common.animation.TimeValues;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 
 import java.util.Arrays;
-import java.util.List;
 
 public class REPL
 {
+    private static final String PS = "> ";
+
     public static void main(String[] args) throws Exception
     {
         ITimeValue dummyValue = new TimeValues.VariableValue(5);
@@ -45,6 +46,12 @@ public class REPL
         class Handler extends SimpleChannelInboundHandler<String>
         {
             @Override
+            public void channelActive(ChannelHandlerContext ctx) throws Exception
+            {
+                ctx.writeAndFlush("REPL started\r\n" + PS);
+            }
+
+            @Override
             protected void channelRead0(ChannelHandlerContext ctx, String input) throws Exception
             {
                 if(input.equals("quit"))
@@ -58,7 +65,7 @@ public class REPL
                     System.out.println("input: " + input);
                     ISExp exp = gson.fromJson(input, ISExp.class);
                     ISExp result = repl.eval(exp);
-                    ctx.writeAndFlush(result.toString() + "\r\n> ");
+                    ctx.write(result.toString() + "\r\n");
                 }
                 catch(Exception e)
                 {
@@ -78,8 +85,9 @@ public class REPL
                     String[] strings = Arrays.copyOfRange(rootCauseStackTrace, 0, stackTraceStart);
 
                     ctx.write(Strings.join(strings, "\r\n"));
-                    ctx.writeAndFlush("\r\n\r\n> ");
+                    ctx.write("\r\n\r\n");
                 }
+                ctx.writeAndFlush(PS);
             }
 
             @Override

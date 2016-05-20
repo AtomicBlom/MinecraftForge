@@ -152,12 +152,12 @@ public class Interpreter
     @SuppressWarnings("StringEquality")
     private ISExp eval(ISExp exp, IList env)
     {
-        if (exp instanceof FloatAtom)
-        {
-            return exp;
-        }
-        if (exp instanceof StringAtom)
-        {
+        if (
+            exp instanceof FloatAtom ||
+            exp instanceof StringAtom ||
+            exp == Nil.INSTANCE ||
+            exp == MNil.INSTANCE
+        ) {
             return exp;
         }
         else if (exp instanceof Symbol)
@@ -260,6 +260,16 @@ public class Interpreter
                 }
             }
             return apply(eval(cons.car, env), evlis(cons.cdr, env));
+        }
+        else if(exp instanceof Map)
+        {
+            Map map = (Map) exp;
+            ImmutableMap.Builder<ISExp, ISExp> builder = ImmutableMap.builder();
+            for(java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : map.value.entrySet())
+            {
+                builder.put(eval(entry.getKey(), env), eval(entry.getValue(), env));
+            }
+            return new Map(builder.build());
         }
         throw new IllegalStateException("eval of " + exp);
     }
