@@ -1,7 +1,7 @@
 ["#bind",
   {
     // putting in time for now for testing
-    "#time": 8,
+    "#time": [["#user", " time"], 0],
 
     // "library"
 

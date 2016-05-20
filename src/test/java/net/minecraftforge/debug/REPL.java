@@ -3,6 +3,7 @@ package net.minecraftforge.debug;
 import com.google.common.base.Charsets;
 import com.google.common.base.Function;
 import com.google.common.base.Functions;
+import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import io.netty.bootstrap.ServerBootstrap;
@@ -26,6 +27,7 @@ import org.apache.commons.lang3.exception.ExceptionUtils;
 
 import java.io.FileReader;
 import java.util.Arrays;
+import java.util.Map;
 
 public class REPL
 {
@@ -33,8 +35,8 @@ public class REPL
 
     public static void main(String[] args) throws Exception
     {
-        ITimeValue dummyValue = new TimeValues.VariableValue(5);
-        final Function<Object, ITimeValue> getter = Functions.constant(dummyValue);
+        final Map<String, ITimeValue> parameters = Maps.newHashMap();
+        final Function<String, ITimeValue> getter = Functions.forMap(parameters);
 
         final Interpreter repl = new Interpreter(getter);
 
@@ -61,21 +63,29 @@ public class REPL
                     future.addListener(ChannelFutureListener.CLOSE);
                     return;
                 }
-                if(!input.isEmpty()) try
+                try
                 {
-                    System.out.println("input: " + input);
-                    ISExp exp;
-                    if(input.startsWith("eval "))
+                    if (input.startsWith("set "))
                     {
-                        String name = input.substring("eval ".length());
-                        exp = gson.fromJson(new FileReader(name), ISExp.class);
+                        String[] parts = input.split(" +");
+                        parameters.put(parts[1], new TimeValues.ConstValue(Float.parseFloat(parts[2])));
                     }
-                    else
+                    else if (!input.isEmpty())
                     {
-                        exp = gson.fromJson(input, ISExp.class);
+                        System.out.println("input: " + input);
+                        ISExp exp;
+                        if (input.startsWith("eval "))
+                        {
+                            String name = input.substring("eval ".length());
+                            exp = gson.fromJson(new FileReader(name), ISExp.class);
+                        }
+                        else
+                        {
+                            exp = gson.fromJson(input, ISExp.class);
+                        }
+                        ISExp result = repl.eval(exp);
+                        ctx.write(result.toString() + "\r\n");
                     }
-                    ISExp result = repl.eval(exp);
-                    ctx.write(result.toString() + "\r\n");
                 }
                 catch(Exception e)
                 {
