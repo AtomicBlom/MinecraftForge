@@ -16,12 +16,16 @@ import io.netty.handler.codec.string.StringDecoder;
 import io.netty.handler.codec.string.StringEncoder;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
+import joptsimple.internal.Strings;
 import net.minecraftforge.common.animation.ITimeValue;
 import net.minecraftforge.common.interpreter.AST.ISExp;
 import net.minecraftforge.common.interpreter.AST.SExpTypeAdapterFactory;
 import net.minecraftforge.common.interpreter.Interpreter;
 import net.minecraftforge.common.animation.TimeValues;
 import org.apache.commons.lang3.exception.ExceptionUtils;
+
+import java.util.Arrays;
+import java.util.List;
 
 public class REPL
 {
@@ -54,11 +58,27 @@ public class REPL
                     System.out.println("input: " + input);
                     ISExp exp = gson.fromJson(input, ISExp.class);
                     ISExp result = repl.eval(exp);
-                    ctx.writeAndFlush(result.toString() + "\r\n");
+                    ctx.writeAndFlush(result.toString() + "\r\n > ");
                 }
                 catch(Exception e)
                 {
-                    ctx.writeAndFlush(ExceptionUtils.getStackTrace(e));
+                    String[] rootCauseStackTrace = ExceptionUtils.getRootCauseStackTrace(e);
+                    int stackTraceStart  = (rootCauseStackTrace.length - 1);
+                    for (; stackTraceStart >= 0 ; --stackTraceStart) {
+                        if (rootCauseStackTrace[stackTraceStart].contains("REPL$1Handler.channelRead0")) {
+                            stackTraceStart--;
+                            break;
+                        }
+                    }
+
+                    if (stackTraceStart == -1) {
+                        stackTraceStart  = (rootCauseStackTrace.length - 1);
+                    }
+
+                    String[] strings = Arrays.copyOfRange(rootCauseStackTrace, 0, stackTraceStart);
+
+                    ctx.write(Strings.join(strings, "\r\n"));
+                    ctx.writeAndFlush("\r\n\r\n > ");
                 }
             }
 
