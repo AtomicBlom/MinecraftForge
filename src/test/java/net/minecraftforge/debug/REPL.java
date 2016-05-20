@@ -58,7 +58,7 @@ public class REPL
                     System.out.println("input: " + input);
                     ISExp exp = gson.fromJson(input, ISExp.class);
                     ISExp result = repl.eval(exp);
-                    ctx.writeAndFlush(result.toString() + "\r\n > ");
+                    ctx.writeAndFlush(result.toString() + "\r\n> ");
                 }
                 catch(Exception e)
                 {
@@ -78,7 +78,7 @@ public class REPL
                     String[] strings = Arrays.copyOfRange(rootCauseStackTrace, 0, stackTraceStart);
 
                     ctx.write(Strings.join(strings, "\r\n"));
-                    ctx.writeAndFlush("\r\n\r\n > ");
+                    ctx.writeAndFlush("\r\n\r\n> ");
                 }
             }
 
