@@ -230,7 +230,7 @@ public enum AST
         {
             if (length(args) != ops.length() + 1)
             {
-                throw new IllegalArgumentException("arithmetic operator string \"" + ops + "\" needs " + ops.length() + " arguments, got " + args);
+                throw new IllegalArgumentException("arithmetic operator string \"" + ops + "\" needs " + ops.length() + 1 + " arguments, got " + args);
             }
             Cons cons = (Cons) args;
             if (!(cons.car instanceof FloatAtom))
