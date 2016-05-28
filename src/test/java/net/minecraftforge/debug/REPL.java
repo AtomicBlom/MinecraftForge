@@ -1,6 +1,8 @@
 package net.minecraftforge.debug;
 
 import com.google.common.base.Charsets;
+import com.google.common.base.Function;
+import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
@@ -17,7 +19,10 @@ import io.netty.handler.codec.string.StringEncoder;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 import joptsimple.internal.Strings;
+import net.minecraftforge.common.animation.ITimeValue;
+import net.minecraftforge.common.animation.TimeValues;
 import net.minecraftforge.common.plon.AST;
+import net.minecraftforge.common.plon.Glue;
 import net.minecraftforge.common.plon.Interpreter;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 
@@ -31,7 +36,23 @@ public class REPL
 
     public static void main(String[] args) throws Exception
     {
-        final Map<AST.ISExp, AST.ISExp> parameters = Maps.newHashMap();
+        final Map<AST.ISExp, AST.ISExp> dynamicEnv = Maps.newHashMap();
+        final Map<String, ITimeValue> parameters = Maps.newHashMap();
+        dynamicEnv.put(AST.makeSymbol("load"), Glue.getLoadOp());
+        dynamicEnv.put(AST.makeSymbol("model_clip_flat"), Glue.getModelClip());
+        dynamicEnv.put(AST.makeSymbol("trigger_positive"), Glue.getTriggerPositive());
+        dynamicEnv.put(AST.makeSymbol("user"), Glue.getUserOp(new Function<String, Optional<? extends ITimeValue>>()
+        {
+            @Override
+            public Optional<? extends ITimeValue> apply(String name)
+            {
+                if(parameters.containsKey(name))
+                {
+                    return Optional.of(parameters.get(name));
+                }
+                return Optional.absent();
+            }
+        }));
 
         final Interpreter repl = new Interpreter();
 
@@ -63,12 +84,17 @@ public class REPL
                     if (input.startsWith("setf "))
                     {
                         String[] parts = input.split(" +");
-                        parameters.put(AST.makeSymbol(parts[1]), AST.makeFloat(Float.parseFloat(parts[2])));
+                        dynamicEnv.put(AST.makeSymbol(parts[1]), AST.makeFloat(Float.parseFloat(parts[2])));
                     }
                     else if (input.startsWith("sets "))
                     {
                         String[] parts = input.split(" +");
-                        parameters.put(AST.makeSymbol(parts[1]), AST.makeString(parts[2]));
+                        dynamicEnv.put(AST.makeSymbol(parts[1]), AST.makeString(parts[2]));
+                    }
+                    else if (input.startsWith("setu "))
+                    {
+                        String[] parts = input.split(" +");
+                        parameters.put(parts[1], new TimeValues.ConstValue(Float.parseFloat(parts[2])));
                     }
                     else if (!input.isEmpty())
                     {
@@ -83,7 +109,7 @@ public class REPL
                         {
                             exp = gson.fromJson(input, AST.ISExp.class);
                         }
-                        AST.ISExp result = repl.eval(exp, ImmutableMap.copyOf(parameters));
+                        AST.ISExp result = repl.eval(exp, ImmutableMap.copyOf(dynamicEnv));
                         ctx.write(result.toString() + "\r\n");
                     }
                 }

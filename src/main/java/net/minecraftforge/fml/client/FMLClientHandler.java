@@ -71,6 +71,7 @@ import net.minecraft.world.WorldSettings;
 import net.minecraft.world.storage.SaveFormatComparator;
 import net.minecraft.world.storage.SaveFormatOld;
 import net.minecraftforge.common.ForgeModContainer;
+import net.minecraftforge.common.plon.Glue;
 import net.minecraftforge.fml.client.registry.RenderingRegistry;
 import net.minecraftforge.fml.common.DummyModContainer;
 import net.minecraftforge.fml.common.DuplicateModsFoundException;
@@ -197,6 +198,7 @@ public class FMLClientHandler implements IFMLSidedHandler
         client = minecraft;
         this.resourcePackList = resourcePackList;
         this.resourcePackMap = Maps.newHashMap();
+        resourceManager.registerReloadListener(Glue.INSTANCE);
         if (minecraft.isDemo())
         {
             FMLLog.severe("DEMO MODE DETECTED, FML will not work. Finishing now.");

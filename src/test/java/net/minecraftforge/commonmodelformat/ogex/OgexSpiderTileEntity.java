@@ -15,7 +15,7 @@ import static net.minecraftforge.commonmodelformat.CommonModelFormatExamples.MOD
 public class OgexSpiderTileEntity extends AnimationTileEntityBase
 {
     private final TimeValues.VariableValue cycleLength = new TimeValues.VariableValue(4);
-    private final TimeValues.VariableValue clickStart = new TimeValues.VariableValue(Float.NEGATIVE_INFINITY);
+    private final TimeValues.VariableValue clickStart = new TimeValues.VariableValue(0);
     private final TimeValues.VariableValue clickEnd = new TimeValues.VariableValue(Float.NEGATIVE_INFINITY);
     private final ImmutableMap<String, ITimeValue> parameters = ImmutableMap.<String, ITimeValue>of(
         "click_start", clickStart,
@@ -24,7 +24,7 @@ public class OgexSpiderTileEntity extends AnimationTileEntityBase
 
     public OgexSpiderTileEntity()
     {
-        super(new ResourceLocation(MODID, "asms/block/" + Resources.OgexBlocks.blockSpiderId.getResourcePath() + ".json"));
+        super(new ResourceLocation(MODID, "plon/" + Resources.OgexBlocks.blockSpiderId.getResourcePath()));
         CommonModelFormatExamples.proxy.register(this);
     }
 

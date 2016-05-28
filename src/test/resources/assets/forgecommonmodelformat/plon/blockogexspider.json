@@ -1,38 +1,11 @@
 ["#bind",
+  ["#load", " forge:root_library_unstable"],
+  //["#load", " src/main/resources/assets/forge/plon/root_library_unstable"],
   {
-    // needs #time, #click_start, #click_end bound from the outside
+    // #time will be bound from the outside
 
-    // "library"
-
-    // trivial map representation for now
-    "#model_clip": ["#lambda",
-      ["#name"],
-      ["#lambda",
-        ["#time"],
-        {
-          " name": "#name",
-          " time": "#time"
-        }
-      ]
-    ],
-    "#trigger_positive": ["#lambda",
-      ["#clip", "#parameter", "#event"],
-      {
-        " clip": "#clip",
-        " parameter": "#parameter",
-        " event": "#event"
-      }
-    ],
-    // definition for computing current clip
-    "#asm_run": ["#lambda", ["#asm"], [[["#asm", " states"], "#state"]]],
-    // definiton for getting the raw stuff
-    "#asm_def": ["#lambda", ["#asm"], {
-      " states": ["#keys", ["#asm", " states"]],
-      " transitions": ["#asm", " transitions"],
-      " start_state": ["#asm", " start_state"]
-    }],
-
-    "#range": ["#lambda", ["#f", "#g"], ["-", "#g", "#f"]],
+    "#click_start": [["#user", " click_start"], "#time"],
+    "#click_end": [["#user", " click_end"], "#time"],
 
     // parameters
 
@@ -50,7 +23,7 @@
     "#stop_length":  ["#range", "#walk_stop", "#attack_steam"],
     "#leap_length":  ["#range", "#attack_leap", "#end"],
 
-    "#speed": 1,
+    "#speed": 0.4,
     "#mul": ["*", "#fps", "#speed"],
 
     "#since_click_start":      ["-*", "#time", "#click_start", "#mul"],
@@ -71,7 +44,7 @@
 
     // clips
 
-    "#model": ["#model_clip", " forgecommonmodelformat:block/SSSteamSpider.ogex@main"],
+    "#model": ["#model_clip_aux", " forgecommonmodelformat:block/SSSteamSpider.ogex@main"],
     "#idle": ["#model", 0],
     "#clip_walk_start": [
       "#trigger_positive",
@@ -99,11 +72,11 @@
       " !transition:idle"
     ]
   },
-  ["#asm_run", {
+  {
     " states": ["#delay_values", {
       " idle": "#idle",
       " walk_start": "#clip_walk_start",
-      " walk_loop": ["#delay", "#clip_walk_loop"],
+      " walk_loop": "#clip_walk_loop",
       " walk_loop_last": "#clip_walk_loop_last",
       " walk_stop": "#clip_walk_stop",
       " attack_leap": "#clip_attack_leap"
@@ -116,6 +89,6 @@
       " walk_stop": " idle",
       " attack_leap": " idle"
     },
-    " start_state": " idle"
-  }]
+    " start_state": " walk_loop"
+  }
 ]

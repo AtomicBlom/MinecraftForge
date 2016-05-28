@@ -22,11 +22,13 @@ import net.minecraftforge.common.animation.Event;
 import net.minecraftforge.common.animation.ITimeValue;
 import net.minecraftforge.common.animation.TimeValues;
 import net.minecraftforge.common.model.IModelState;
+import net.minecraftforge.common.plon.Glue;
 import net.minecraftforge.common.util.JsonUtils;
 import net.minecraftforge.fml.common.FMLLog;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 
+import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.Level;
@@ -38,19 +40,10 @@ import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.gson.annotations.SerializedName;
 
-public final class AnimationStateMachine implements IAnimationStateMachine
+public final class AnimationStateMachine extends AnimationStateMachineBase
 {
-    private final ImmutableMap<String, ITimeValue> parameters;
     private final ImmutableMap<String, IClip> clips;
-    private final ImmutableList<String> states;
-    private final ImmutableMultimap<String, String> transitions;
-    @SerializedName("start_state")
-    private final String startState;
-
-    private transient boolean shouldHandleSpecialEvents;
-    private transient String currentStateName;
     private transient IClip currentState;
-    private transient float lastPollTime;
 
     private static final LoadingCache<Triple<? extends IClip, Float, Float>, Pair<IModelState, Iterable<Event>>> clipCache = CacheBuilder.newBuilder()
         .maximumSize(100)
@@ -83,18 +76,17 @@ public final class AnimationStateMachine implements IAnimationStateMachine
 
     public AnimationStateMachine(ImmutableMap<String, ITimeValue> parameters, ImmutableMap<String, IClip> clips, ImmutableList<String> states, ImmutableMultimap<String, String> transitions, String startState)
     {
-        this.parameters = parameters;
+        super(parameters, states, transitions, startState);
         this.clips = clips;
-        this.states = states;
-        this.transitions = transitions;
-        this.startState = startState;
     }
 
     /**
      * post-loading initialization hook.
      */
-    void initialize()
+    @Override
+    protected void initialize()
     {
+        super.initialize();
         if(parameters == null)
         {
             throw new JsonParseException("Animation State Machine should contain \"parameters\" key.");
@@ -111,15 +103,12 @@ public final class AnimationStateMachine implements IAnimationStateMachine
         {
             throw new JsonParseException("Animation State Machine should contain \"transitions\" key.");
         }
-        shouldHandleSpecialEvents = true;
-        lastPollTime = Float.NEGATIVE_INFINITY;
         // setting the starting state
         IClip state = clips.get(startState);
         if(!clips.containsKey(startState) || !states.contains(startState))
         {
             throw new IllegalStateException("unknown state: " + startState);
         }
-        currentStateName = startState;
         currentState = state;
     }
 
@@ -131,62 +120,19 @@ public final class AnimationStateMachine implements IAnimationStateMachine
         }
         Pair<IModelState, Iterable<Event>> pair = clipCache.getUnchecked(Triple.of(currentState, lastPollTime, time));
         lastPollTime = time;
-        boolean shouldFilter = false;
-        if(shouldHandleSpecialEvents)
-        {
-            for(Event event : ImmutableList.copyOf(pair.getRight()).reverse())
-            {
-                if(event.event().startsWith("!"))
-                {
-                    shouldFilter = true;
-                    if(event.event().startsWith("!transition:"))
-                    {
-                        String newState = event.event().substring("!transition:".length());
-                        transition(newState);
-                    }
-                    else
-                    {
-                        System.out.println("Unknown special event \"" + event.event() + "\", ignoring");
-                    }
-                }
-            }
-        }
-        if(!shouldFilter)
-        {
-            return pair;
-        }
-        return Pair.of(pair.getLeft(), Iterables.filter(pair.getRight(), new Predicate<Event>()
-        {
-            public boolean apply(Event event)
-            {
-                return !event.event().startsWith("!");
-            }
-        }));
+        return filterSpecialEvents(pair);
     }
 
+    @Override
     public void transition(String newState)
     {
         IClip nc = clips.get(newState);
-        if(!clips.containsKey(newState) || !states.contains(newState))
+        if(!clips.containsKey(newState))
         {
             throw new IllegalStateException("unknown state: " + newState);
         }
-        if(!transitions.containsEntry(currentStateName, newState))
-        {
-            throw new IllegalArgumentException("no transition from current clip \"" + currentStateName + "\" to the clip \"" + newState + "\" found.");
-        }
-        currentStateName = newState;
+        super.transition(newState);
         currentState = nc;
-    }
-
-    public String currentState()
-    {
-        return currentStateName;
-    }
-
-    public void shouldHandleSpecialEvents(boolean value)
-    {
-        shouldHandleSpecialEvents = true;
     }
 
     /**
@@ -197,25 +143,32 @@ public final class AnimationStateMachine implements IAnimationStateMachine
     {
         try
         {
-            ClipResolver clipResolver = new ClipResolver();
-            ParameterResolver parameterResolver = new ParameterResolver(customParameters);
-            Clips.CommonClipTypeAdapterFactory.INSTANCE.setClipResolver(clipResolver);
-            TimeValues.CommonTimeValueTypeAdapterFactory.INSTANCE.setValueResolver(parameterResolver);
-            IResource resource = manager.getResource(location);
-            AnimationStateMachine asm = asmGson.fromJson(new InputStreamReader(resource.getInputStream(), "UTF-8"), AnimationStateMachine.class);
-            clipResolver.asm = asm;
-            parameterResolver.asm = asm;
-            asm.initialize();
-            //String json = asmGson.toJson(asm);
-            //System.out.println(location + ": " + json);
-            return asm;
+            if (location.getResourcePath().startsWith("asms/"))
+            {
+                ClipResolver clipResolver = new ClipResolver();
+                ParameterResolver parameterResolver = new ParameterResolver(customParameters);
+                Clips.CommonClipTypeAdapterFactory.INSTANCE.setClipResolver(clipResolver);
+                TimeValues.CommonTimeValueTypeAdapterFactory.INSTANCE.setValueResolver(parameterResolver);
+                IResource resource = manager.getResource(location);
+                AnimationStateMachine asm = asmGson.fromJson(new InputStreamReader(resource.getInputStream(), "UTF-8"), AnimationStateMachine.class);
+                clipResolver.asm = asm;
+                parameterResolver.asm = asm;
+                asm.initialize();
+                //String json = asmGson.toJson(asm);
+                //System.out.println(location + ": " + json);
+                return asm;
+            }
+            else if(location.getResourcePath().startsWith("plon/"))
+            {
+                return Glue.loadASM(new ResourceLocation(location.getResourceDomain(), location.getResourcePath().substring("plon/".length())), customParameters);
+            }
         }
-        catch(IOException e)
+        catch (IOException e)
         {
             FMLLog.log(Level.ERROR, e, "Exception loading Animation State Machine %s, skipping", location);
             return missing;
         }
-        catch(JsonParseException e)
+        catch (JsonParseException e)
         {
             FMLLog.log(Level.ERROR, e, "Exception loading Animation State Machine %s, skipping", location);
             return missing;
@@ -225,6 +178,7 @@ public final class AnimationStateMachine implements IAnimationStateMachine
             Clips.CommonClipTypeAdapterFactory.INSTANCE.setClipResolver(null);
             TimeValues.CommonTimeValueTypeAdapterFactory.INSTANCE.setValueResolver(null);
         }
+        return missing;
     }
 
     private static final AnimationStateMachine missing = new AnimationStateMachine(

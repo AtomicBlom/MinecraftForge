@@ -11,12 +11,28 @@ public class Interpreter
 {
     public ISExp eval(ISExp exp, ImmutableMap<? extends ISExp, ? extends ISExp> topEnv)
     {
-        return eval(exp, new Cons(new Map(PrimOp.values), new Cons(new Map(topEnv), Nil.INSTANCE)));
+        return eval(exp, new Cons(new Map(topEnv), new Cons(new Map(PrimOp.values), Nil.INSTANCE)));
     }
 
     public ISExp eval(ISExp exp)
     {
         return eval(exp, new Cons(new Map(PrimOp.values), Nil.INSTANCE));
+    }
+
+    Map loadFrame(Map map)
+    {
+        ImmutableMap.Builder<ISExp, ISExp> frameBuilder = ImmutableMap.builder();
+        for (java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : map.value.entrySet())
+        {
+            addLabel(frameBuilder, entry.getKey(), entry.getValue());
+        }
+        /*ImmutableMap<ISExp, ISExp> frame = frameBuilder.build();
+        env = new Cons(new Map(frame), env);
+        for (java.util.Map.Entry<ISExp, ISExp> entry : frame.entrySet())
+        {
+            frameBuilder.put(entry.getKey(), eval(entry.getValue(), env));
+        }*/
+        return new Map(frameBuilder.build());
     }
 
     private static final ISExp labelSymbol = makeSymbol("&labeled");
@@ -72,7 +88,7 @@ public class Interpreter
         return new Cons(functionSymbol, new Cons(args, new Cons(body, new Cons(env, Nil.INSTANCE))));
     }
 
-    private static void addLabel(ImmutableMap.Builder<Symbol, ISExp> frame, ISExp key, ISExp value)
+    private static void addLabel(ImmutableMap.Builder<ISExp, ISExp> frame, ISExp key, ISExp value)
     {
         if(key instanceof Symbol)
         {
@@ -161,7 +177,7 @@ public class Interpreter
         IMap frame;
         if (definitions instanceof Map)
         {
-            ImmutableMap.Builder<Symbol, ISExp> frameBuilder = ImmutableMap.builder();
+            ImmutableMap.Builder<ISExp, ISExp> frameBuilder = ImmutableMap.builder();
             Map map = (Map) definitions;
             for (java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : map.value.entrySet())
             {

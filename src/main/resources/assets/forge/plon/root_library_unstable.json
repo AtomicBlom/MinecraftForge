@@ -1,0 +1,21 @@
+{
+  "#model_clip_aux": ["#lambda",
+    ["#name"],
+    ["#lambda",
+      ["#time"],
+      ["#model_clip_flat", "#name", "#time"]
+    ]
+  ],
+
+  // definition for computing current clip
+  "#asm_run": ["#lambda", ["#asm", "#state"], [[["#asm", " states"], "#state"]]],
+
+  // definiton for getting the raw stuff
+  "#asm_def": ["#lambda", ["#asm"], {
+    " states": ["#keys", ["#asm", " states"]],
+    " transitions": ["#asm", " transitions"],
+    " start_state": ["#asm", " start_state"]
+  }],
+
+  "#range": ["#lambda", ["#f", "#g"], ["-", "#g", "#f"]]
+}
