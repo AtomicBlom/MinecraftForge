@@ -3,6 +3,8 @@ package net.minecraftforge.common.interpreter;
 import com.google.common.base.Joiner;
 import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
+import com.google.common.collect.UnmodifiableIterator;
 import com.google.gson.Gson;
 import com.google.gson.JsonParseException;
 import com.google.gson.TypeAdapter;
@@ -12,8 +14,10 @@ import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
 import net.minecraftforge.common.animation.ITimeValue;
 import org.apache.commons.lang3.NotImplementedException;
+import scala.tools.cmd.gen.AnyVals;
 
 import java.io.IOException;
+import java.util.Iterator;
 import java.util.Map;
 
 import static net.minecraftforge.common.animation.TimeValues.opsPattern;
@@ -51,7 +55,7 @@ public enum AST
         ISExp apply(IList args);
     }
 
-    static enum Unbound implements IAtom
+    /*static enum Unbound implements IAtom
     {
         INSTANCE;
 
@@ -60,7 +64,7 @@ public enum AST
         {
             return "&unbound";
         }
-    }
+    }*/
 
     static final class FloatAtom implements IAtom
     {
@@ -359,7 +363,7 @@ public enum AST
             @Override
             public ISExp apply(IList args)
             {
-                throw new NotImplementedException("map");
+                return new Map(args);
             }
         },
         Conm("conm")
@@ -367,7 +371,77 @@ public enum AST
             @Override
             public ISExp apply(IList args)
             {
-                throw new NotImplementedException("conm");
+                if (length(args) != 3)
+                {
+                    throw new IllegalArgumentException("Conm needs 3 arguments, got: " + args);
+                }
+                Cons c1 = (Cons) args;
+                Cons c2 = (Cons) c1.cdr;
+                Cons c3 = (Cons) c2.cdr;
+                if (!(c3.car instanceof IMap))
+                {
+                    throw new IllegalArgumentException("Conm needs a map as a third argument");
+                }
+                IMap map = (IMap) c3.car;
+                if(map == MNil.INSTANCE)
+                {
+                    return new Map(ImmutableMap.of(c1.car, c2.car));
+                }
+                Map oldMap = (AST.Map) map;
+                java.util.Map<ISExp, ISExp> newMap = Maps.newHashMap();
+                newMap.putAll(oldMap.value);
+                newMap.put(c1.car, c2.car);
+                return new Map(ImmutableMap.copyOf(newMap));
+            }
+        },
+        Carm("carm")
+        {
+            @Override
+            public ISExp apply(IList args)
+            {
+                if (length(args) != 1)
+                {
+                    throw new IllegalArgumentException("Carm needs 1 argument, got: " + args);
+                }
+                Cons c1 = (Cons) args;
+                if (!(c1.car instanceof Map))
+                {
+                    throw new IllegalArgumentException("Carm needs a non-empty map as an argument");
+                }
+                // immutable map iterator is stable, so this is consistent with cdrm.
+                java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry = ((Map) c1.car).value.entrySet().iterator().next();
+                return new Cons(entry.getKey(), new Cons(entry.getValue(), Nil.INSTANCE));
+            }
+        },
+        Cdrm("cdrm")
+        {
+            @Override
+            public ISExp apply(IList args)
+            {
+                if (length(args) != 1)
+                {
+                    throw new IllegalArgumentException("Cdrm needs 1 argument, got: " + args);
+                }
+                Cons c1 = (Cons) args;
+                if (!(c1.car instanceof Map))
+                {
+                    throw new IllegalArgumentException("Cdrm needs a non-empty map as an argument");
+                }
+                // immutable map iterator is stable, so this is consistent with carm.
+                Iterator<? extends java.util.Map.Entry<? extends ISExp, ? extends ISExp>> iterator = ((Map) c1.car).value.entrySet().iterator();
+                iterator.next();
+                ImmutableMap.Builder<ISExp, ISExp> builder = ImmutableMap.builder();
+                while(iterator.hasNext())
+                {
+                    java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry = iterator.next();
+                    builder.put(entry);
+                }
+                ImmutableMap<ISExp, ISExp> map = builder.build();
+                if(map.isEmpty())
+                {
+                    return MNil.INSTANCE;
+                }
+                return new Map(map);
             }
         };
 
@@ -518,6 +592,24 @@ public enum AST
         final ImmutableMap<? extends ISExp, ? extends ISExp> value;
         private final transient boolean isJsonifiable;
 
+        public Map(IList list)
+        {
+            this(buildMap(list));
+        }
+
+        private static ImmutableMap<ISExp, ISExp> buildMap(IList list)
+        {
+            ImmutableMap.Builder<ISExp, ISExp> builder = ImmutableMap.builder();
+            while (list != Nil.INSTANCE)
+            {
+                Cons c1 = (Cons) list;
+                Cons c2 = (Cons) c1.cdr;
+                builder.put(c1.car, c2.car);
+                list = c2.cdr;
+            }
+            return builder.build();
+        }
+
         public Map(ImmutableMap<? extends ISExp, ? extends ISExp> value)
         {
             this.value = value;
@@ -627,7 +719,6 @@ public enum AST
                             }
                             out.endArray();
                         }
-                        // TODO
                     }
                 }
 
@@ -677,24 +768,10 @@ public enum AST
                                 if (cons.car.equals(mapSymbol))
                                 {
                                     // de-sugaring the map with non-string keys
-                                    ImmutableMap.Builder<ISExp, ISExp> builder = ImmutableMap.builder();
-                                    list = ((Cons) list).cdr;
-                                    while (list != Nil.INSTANCE)
+                                    Map map = new Map(cons.cdr);
+                                    if (map.value.isEmpty())
                                     {
-                                        Cons c1 = (Cons) list;
-                                        Cons c2 = (Cons) c1.cdr;
-                                        builder.put(c1.car, c2.car);
-                                        list = c2.cdr;
-                                    }
-                                    ImmutableMap<ISExp, ISExp> value = builder.build();
-                                    IMap map;
-                                    if (value.isEmpty())
-                                    {
-                                        map = MNil.INSTANCE;
-                                    }
-                                    else
-                                    {
-                                        map = new Map(value);
+                                        return MNil.INSTANCE;
                                     }
                                     return map;
                                 }
