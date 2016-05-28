@@ -1,9 +1,6 @@
 ["#bind",
   {
-    // putting in time for now for testing
-    "#time": [["#user", " time"], 0],
-
-    // "library"
+    // needs #time, #click_start, #click_end bound from the outside
 
     // trivial map representation for now
     "#model_clip": ["#lambda",
@@ -26,9 +23,6 @@
     ],
     "#asm": ["#lambda", ["#x"], "#x"],
 
-    "#apply": ["#lambda", ["#clip", "#time"], ["#lambda", ["#t"], ["#clip", ["#time", "#t"]]]],
-    "#compose": ["#lambda", ["#f", "#g"], ["#lambda", ["#t"], ["#f", ["#g", "#t"]]]],
-
     "#range": ["#lambda", ["#f", "#g"], ["-", "#g", "#f"]],
 
     // parameters
@@ -41,9 +35,6 @@
     "#attack_steam_stop": 55,
     "#attack_leap": 70,
     "#end": 96,
-
-    "#click_start": [["#user", " click_start"], "#time"],
-    "#click_end":   [["#user", " click_end"], "#time"],
 
     "#start_length": ["#range", "#walk_start", "#walk_loop"],
     "#loop_length":  ["#range", "#walk_loop", "#walk_stop"],

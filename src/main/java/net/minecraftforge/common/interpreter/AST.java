@@ -29,6 +29,16 @@ public enum AST
 
     public static interface ISExp {}
 
+    public static ISExp makeSymbol(String name)
+    {
+        return new Symbol(name);
+    }
+
+    public static ISExp makeFloat(float value)
+    {
+        return new FloatAtom(value);
+    }
+
     static interface IAtom extends ISExp {}
 
     static interface IStringAtom extends IAtom

@@ -1,8 +1,6 @@
 package net.minecraftforge.common.interpreter;
 
-import com.google.common.base.Function;
 import com.google.common.collect.ImmutableMap;
-import net.minecraftforge.common.animation.ITimeValue;
 
 import static net.minecraftforge.common.interpreter.AST.*;
 
@@ -11,11 +9,9 @@ import static net.minecraftforge.common.interpreter.AST.*;
  */
 public class Interpreter
 {
-    private final Function<? super String, ? extends ITimeValue> userParameters;
-
-    public Interpreter(Function<? super String, ? extends ITimeValue> userParameters)
+    public ISExp eval(ISExp exp, ImmutableMap<? extends ISExp, ? extends ISExp> topEnv)
     {
-        this.userParameters = userParameters;
+        return eval(exp, new Cons(new Map(PrimOp.values), new Cons(new Map(topEnv), Nil.INSTANCE)));
     }
 
     public ISExp eval(ISExp exp)
@@ -95,7 +91,7 @@ public class Interpreter
         throw new IllegalArgumentException("can't label: " + key);
     }
 
-    private ISExp unlabel(ISExp value, IList env)
+    private static ISExp unlabel(ISExp value, IList env)
     {
         if(value instanceof Cons && ((Cons) value).car.equals(labelSymbol))
         {
@@ -125,11 +121,12 @@ public class Interpreter
         return value;
     }
 
-    private ISExp lookup(IList env, Symbol name)
+    private static ISExp lookup(IList env, Symbol name)
     {
         if (env == Nil.INSTANCE)
         {
-            return Unbound.INSTANCE;
+            //return Unbound.INSTANCE;
+            throw new IllegalStateException("Undefined variable " + name);
         }
         Cons cons = (Cons) env;
         if (cons.car == MNil.INSTANCE)
@@ -150,7 +147,7 @@ public class Interpreter
     }
 
     @SuppressWarnings("StringEquality")
-    private ISExp eval(ISExp exp, IList env)
+    private static ISExp eval(ISExp exp, IList env)
     {
         if (
             exp instanceof FloatAtom ||
@@ -239,27 +236,10 @@ public class Interpreter
                     ISExp body = c3.car;
                     return eval(body, new Cons(new Map(frame.build()), env));
                 }
-                else if (name == "user")
-                {
-                    if (length(cons.cdr) != 1)
-                    {
-                        throw new IllegalArgumentException("user needs 1 argument, got: " + cons.cdr);
-                    }
-                    Cons c2 = (Cons) cons.cdr;
-                    if (c2.car instanceof StringAtom)
-                    {
-                        String parameterName = ((StringAtom) c2.car).value;
-                        ITimeValue parameter = userParameters.apply(parameterName);
-                        if (parameter == null)
-                        {
-                            return Unbound.INSTANCE;
-                        }
-                        return new User(parameterName, parameter);
-                    }
-                    throw new IllegalArgumentException("user needs string argument, got: " + cons.car);
-                }
             }
-            return apply(eval(cons.car, env), evlis(cons.cdr, env));
+            ISExp func = eval(cons.car, env);
+            IList args = evlis(cons.cdr, env);
+            return apply(func, args);
         }
         else if(exp instanceof Map)
         {
@@ -274,7 +254,7 @@ public class Interpreter
         throw new IllegalStateException("eval of " + exp);
     }
 
-    private ISExp apply(ISExp func, IList args)
+    private static ISExp apply(ISExp func, IList args)
     {
         if (func instanceof ICallableAtom)
         {
@@ -306,7 +286,7 @@ public class Interpreter
         throw new IllegalArgumentException("Don't know how to apply: " + func);
     }
 
-    private IList evlis(IList list, IList env)
+    private static IList evlis(IList list, IList env)
     {
         if (list == Nil.INSTANCE)
         {

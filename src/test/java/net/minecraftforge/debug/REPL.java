@@ -1,8 +1,7 @@
 package net.minecraftforge.debug;
 
 import com.google.common.base.Charsets;
-import com.google.common.base.Function;
-import com.google.common.base.Functions;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -18,11 +17,8 @@ import io.netty.handler.codec.string.StringEncoder;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 import joptsimple.internal.Strings;
-import net.minecraftforge.common.animation.ITimeValue;
-import net.minecraftforge.common.interpreter.AST.ISExp;
-import net.minecraftforge.common.interpreter.AST.SExpTypeAdapterFactory;
+import net.minecraftforge.common.interpreter.AST;
 import net.minecraftforge.common.interpreter.Interpreter;
-import net.minecraftforge.common.animation.TimeValues;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 
 import java.io.FileReader;
@@ -35,12 +31,11 @@ public class REPL
 
     public static void main(String[] args) throws Exception
     {
-        final Map<String, ITimeValue> parameters = Maps.newHashMap();
-        final Function<String, ITimeValue> getter = Functions.forMap(parameters);
+        final Map<AST.ISExp, AST.ISExp> parameters = Maps.newHashMap();
 
-        final Interpreter repl = new Interpreter(getter);
+        final Interpreter repl = new Interpreter();
 
-        final Gson gson = new GsonBuilder().registerTypeAdapterFactory(SExpTypeAdapterFactory.INSTANCE).create();
+        final Gson gson = new GsonBuilder().registerTypeAdapterFactory(AST.SExpTypeAdapterFactory.INSTANCE).create();
 
         final StringDecoder decoder = new StringDecoder(Charsets.UTF_8);
         final StringEncoder encoder = new StringEncoder(Charsets.UTF_8);
@@ -68,22 +63,22 @@ public class REPL
                     if (input.startsWith("set "))
                     {
                         String[] parts = input.split(" +");
-                        parameters.put(parts[1], new TimeValues.ConstValue(Float.parseFloat(parts[2])));
+                        parameters.put(AST.makeSymbol(parts[1]), AST.makeFloat(Float.parseFloat(parts[2])));
                     }
                     else if (!input.isEmpty())
                     {
                         System.out.println("input: " + input);
-                        ISExp exp;
+                        AST.ISExp exp;
                         if (input.startsWith("eval "))
                         {
                             String name = input.substring("eval ".length());
-                            exp = gson.fromJson(new FileReader(name), ISExp.class);
+                            exp = gson.fromJson(new FileReader(name), AST.ISExp.class);
                         }
                         else
                         {
-                            exp = gson.fromJson(input, ISExp.class);
+                            exp = gson.fromJson(input, AST.ISExp.class);
                         }
-                        ISExp result = repl.eval(exp);
+                        AST.ISExp result = repl.eval(exp, ImmutableMap.copyOf(parameters));
                         ctx.write(result.toString() + "\r\n");
                     }
                 }
