@@ -19,9 +19,9 @@ public class Interpreter
         return eval(exp, new Cons(new Map(PrimOp.values), Nil.INSTANCE));
     }
 
-    private static final Symbol labelSymbol = new Symbol("&labeled");
-    private static final Symbol functionSymbol = new Symbol("&function");
-    static final Symbol mapSymbol = new Symbol("&map");
+    private static final ISExp labelSymbol = makeSymbol("&labeled");
+    private static final ISExp functionSymbol = makeSymbol("&function");
+    static final ISExp mapSymbol = makeSymbol("&map");
 
     static int length(ISExp exp)
     {
@@ -146,6 +146,11 @@ public class Interpreter
         throw new IllegalArgumentException("lookup called with a list that has something other than a map:" + cons.car);
     }
 
+    private static ISExp delay(ISExp exp)
+    {
+        return new Cons(makeSymbol("lambda"), new Cons(Nil.INSTANCE, new Cons(exp, Nil.INSTANCE)));
+    }
+
     @SuppressWarnings("StringEquality")
     private static ISExp eval(ISExp exp, IList env)
     {
@@ -175,7 +180,7 @@ public class Interpreter
                 {
                     if (length(cons.cdr) != 1)
                     {
-                        throw new IllegalArgumentException("quote needs 1 argument, got:" + cons.cdr);
+                        throw new IllegalArgumentException("quote needs 1 argument, got: " + cons.cdr);
                     }
                     Cons cdr = (Cons) cons.cdr;
                     return cdr.car;
@@ -184,13 +189,13 @@ public class Interpreter
                 {
                     if (length(cons.cdr) != 2)
                     {
-                        throw new IllegalArgumentException("lambda needs 2 arguments, got:" + cons.cdr);
+                        throw new IllegalArgumentException("lambda needs 2 arguments, got: " + cons.cdr);
                     }
                     Cons c2 = (Cons) cons.cdr;
                     Cons c3 = (Cons) c2.cdr;
                     if (!(c2.car instanceof IList))
                     {
-                        throw new IllegalArgumentException("lambda needs a list as a first argument, got:" + c2.car);
+                        throw new IllegalArgumentException("lambda needs a list as a first argument, got: " + c2.car);
                     }
                     IList args = (IList) c2.car;
                     ISExp body = c3.car;
@@ -200,7 +205,7 @@ public class Interpreter
                 {
                     if (length(cons.cdr) != 2)
                     {
-                        throw new IllegalArgumentException("bind needs 2 arguments, got:" + cons.cdr);
+                        throw new IllegalArgumentException("bind needs 2 arguments, got: " + cons.cdr);
                     }
                     Cons c2 = (Cons) cons.cdr;
                     Cons c3 = (Cons) c2.cdr;
@@ -235,6 +240,40 @@ public class Interpreter
                     }
                     ISExp body = c3.car;
                     return eval(body, new Cons(new Map(frame.build()), env));
+                }
+                // TODO: macro?
+                else if(name == "delay")
+                {
+                    if (length(cons.cdr) != 1)
+                    {
+                        throw new IllegalArgumentException("delay needs 1 argument, got: " + exp);
+                    }
+                    Cons cdr = (Cons) cons.cdr;
+                    return eval(delay(cdr.car), env);
+                }
+                // TODO: macro?
+                else if(name == "delay_values")
+                {
+                    if (length(cons.cdr) != 1)
+                    {
+                        throw new IllegalArgumentException("delay_values needs 1 argument, got: " + cons.cdr);
+                    }
+                    Cons cdr = (Cons) cons.cdr;
+                    if (!(cdr.car instanceof IMap))
+                    {
+                        throw new IllegalArgumentException("delay_values needs a map as a first argument, got: " + cdr.car);
+                    }
+                    if(cdr.car == MNil.INSTANCE)
+                    {
+                        return MNil.INSTANCE;
+                    }
+                    Map map = (Map) cdr.car;
+                    ImmutableMap.Builder<ISExp, ISExp> builder = ImmutableMap.builder();
+                    for (java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : map.value.entrySet())
+                    {
+                        builder.put(entry.getKey(), delay(entry.getValue()));
+                    }
+                    return eval(new Map(builder.build()), env);
                 }
             }
             ISExp func = eval(cons.car, env);

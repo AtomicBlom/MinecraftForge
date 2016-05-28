@@ -60,10 +60,15 @@ public class REPL
                 }
                 try
                 {
-                    if (input.startsWith("set "))
+                    if (input.startsWith("setf "))
                     {
                         String[] parts = input.split(" +");
                         parameters.put(AST.makeSymbol(parts[1]), AST.makeFloat(Float.parseFloat(parts[2])));
+                    }
+                    else if (input.startsWith("sets "))
+                    {
+                        String[] parts = input.split(" +");
+                        parameters.put(AST.makeSymbol(parts[1]), AST.makeString(parts[2]));
                     }
                     else if (!input.isEmpty())
                     {

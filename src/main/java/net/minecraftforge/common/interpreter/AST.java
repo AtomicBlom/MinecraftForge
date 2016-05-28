@@ -38,6 +38,11 @@ public enum AST
         return new Symbol(name);
     }
 
+    public static ISExp makeString(String name)
+    {
+        return new StringAtom(name);
+    }
+
     public static ISExp makeFloat(float value)
     {
         return new FloatAtom(value);
@@ -138,7 +143,7 @@ public enum AST
     {
         final String value;
 
-        Symbol(String value)
+        private Symbol(String value)
         {
             this.value = value.intern();
         }
@@ -442,6 +447,30 @@ public enum AST
                     return MNil.INSTANCE;
                 }
                 return new Map(map);
+            }
+        },
+        // TODO: should be a library function eventually
+        Keys("keys")
+        {
+            @Override
+            public ISExp apply(IList args)
+            {
+                if (length(args) != 1)
+                {
+                    throw new IllegalArgumentException("keys needs 1 argument, got: " + args);
+                }
+                Cons c1 = (Cons) args;
+                if (!(c1.car instanceof Map))
+                {
+                    throw new IllegalArgumentException("keys needs a non-empty map as an argument");
+                }
+                Map map = (Map) c1.car;
+                IList keys = Nil.INSTANCE;
+                for(ISExp key : map.value.keySet())
+                {
+                    keys = new Cons(key, keys);
+                }
+                return keys;
             }
         };
 

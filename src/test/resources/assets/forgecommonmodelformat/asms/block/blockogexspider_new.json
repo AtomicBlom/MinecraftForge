@@ -2,6 +2,8 @@
   {
     // needs #time, #click_start, #click_end bound from the outside
 
+    // "library"
+
     // trivial map representation for now
     "#model_clip": ["#lambda",
       ["#name"],
@@ -21,7 +23,14 @@
         " event": "#event"
       }
     ],
-    "#asm": ["#lambda", ["#x"], "#x"],
+    // definition for computing current clip
+    "#asm_run": ["#lambda", ["#asm"], [[["#asm", " states"], "#state"]]],
+    // definiton for getting the raw stuff
+    "#asm_def": ["#lambda", ["#asm"], {
+      " states": ["#keys", ["#asm", " states"]],
+      " transitions": ["#asm", " transitions"],
+      " start_state": ["#asm", " start_state"]
+    }],
 
     "#range": ["#lambda", ["#f", "#g"], ["-", "#g", "#f"]],
 
@@ -90,15 +99,15 @@
       " !transition:idle"
     ]
   },
-  ["#asm", {
-    " states": {
+  ["#asm_run", {
+    " states": ["#delay_values", {
       " idle": "#idle",
       " walk_start": "#clip_walk_start",
-      " walk_loop": "#clip_walk_loop",
+      " walk_loop": ["#delay", "#clip_walk_loop"],
       " walk_loop_last": "#clip_walk_loop_last",
       " walk_stop": "#clip_walk_stop",
       " attack_leap": "#clip_attack_leap"
-    },
+    }],
     " transitions": {
       " idle": ["#list", " walk_start", " attack_leap"],
       " walk_start": " walk_loop",
