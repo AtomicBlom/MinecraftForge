@@ -48,25 +48,29 @@
     "#idle": ["#model", 0],
     "#clip_walk_start": [
       "#trigger_positive",
+      " loop_start_trigger",
       ["#model", "#walk_start_time"],
       "#end_walk_start_clip",
-      " !transition:clip_walk_loop"
+      " !transition:walk_loop"
     ],
     "#clip_walk_loop": ["#model", "#walk_loop_time"],
     "#clip_walk_loop_last": [
       "#trigger_positive",
+      " loop_end_trigger",
       "#clip_walk_loop",
       "#end_walk_loop_clip",
-      " !transition:clip_walk_stop"
+      " !transition:walk_stop"
     ],
     "#clip_walk_stop": [
       "#trigger_positive",
+      " stop_trigger",
       ["#model", "#walk_stop_time"],
       "#end_walk_stop_clip",
       " !transition:idle"
     ],
     "#clip_attack_leap": [
       "#trigger_positive",
+      " attack_end_trigger",
       ["#model", "#attack_leap_time"],
       "#end_attack_leap_clip",
       " !transition:idle"

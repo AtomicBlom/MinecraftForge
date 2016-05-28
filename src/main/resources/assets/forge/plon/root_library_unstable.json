@@ -3,14 +3,26 @@
     ["#name"],
     ["#lambda",
       ["#time"],
-      ["#model_clip_flat", "#name", "#time"]
+      ["#list", "#name", "#time", {}]
+    ]
+  ],
+
+  "#trigger_positive": ["#lambda",
+    ["#name", "#clip", "#parameter", "#event"],
+    ["#bind",
+      {
+        "#name": ["#car", "#clip"],
+        "#time": ["#car", ["#cdr", "#clip"]],
+        "#triggers": ["#car", ["#cdr", ["#cdr", "#clip"]]]
+      },
+      ["#list", "#name", "#time", ["#conm", "#name", ["#list", "#parameter", "#event"], "#triggers"]]
     ]
   ],
 
   // definition for computing current clip
   "#asm_run": ["#lambda", ["#asm", "#state"], [[["#asm", " states"], "#state"]]],
 
-  // definiton for getting the raw stuff
+  // definition for getting the raw stuff
   "#asm_def": ["#lambda", ["#asm"], {
     " states": ["#keys", ["#asm", " states"]],
     " transitions": ["#asm", " transitions"],

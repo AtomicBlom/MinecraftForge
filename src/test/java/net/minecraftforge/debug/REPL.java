@@ -39,8 +39,8 @@ public class REPL
         final Map<AST.ISExp, AST.ISExp> dynamicEnv = Maps.newHashMap();
         final Map<String, ITimeValue> parameters = Maps.newHashMap();
         dynamicEnv.put(AST.makeSymbol("load"), Glue.getLoadOp());
-        dynamicEnv.put(AST.makeSymbol("model_clip_flat"), Glue.getModelClip());
-        dynamicEnv.put(AST.makeSymbol("trigger_positive"), Glue.getTriggerPositive());
+        //dynamicEnv.put(AST.makeSymbol("model_clip_flat"), Glue.getModelClip());
+        //dynamicEnv.put(AST.makeSymbol("trigger_positive"), Glue.getTriggerPositive());
         dynamicEnv.put(AST.makeSymbol("user"), Glue.getUserOp(new Function<String, Optional<? extends ITimeValue>>()
         {
             @Override

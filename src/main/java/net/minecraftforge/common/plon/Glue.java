@@ -4,10 +4,7 @@ import com.google.common.base.Charsets;
 import com.google.common.base.Function;
 import com.google.common.base.Objects;
 import com.google.common.base.Optional;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableMultimap;
-import com.google.common.collect.Maps;
+import com.google.common.collect.*;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import net.minecraft.client.renderer.block.model.ModelResourceLocation;
@@ -18,7 +15,6 @@ import net.minecraft.launchwrapper.Launch;
 import net.minecraft.util.ResourceLocation;
 import net.minecraftforge.common.animation.Event;
 import net.minecraftforge.common.animation.ITimeValue;
-import net.minecraftforge.common.animation.TimeValues;
 import net.minecraftforge.common.model.IModelState;
 import net.minecraftforge.common.model.animation.AnimationStateMachineBase;
 import net.minecraftforge.common.model.animation.Clips;
@@ -45,7 +41,7 @@ public enum Glue implements IResourceManagerReloadListener
         return GlueOp.Load;
     }
 
-    public static ISExp getModelClip()
+    /*public static ISExp getModelClip()
     {
         return GlueOp.ModelClip;
     }
@@ -53,7 +49,7 @@ public enum Glue implements IResourceManagerReloadListener
     public static ISExp getTriggerPositive()
     {
         return GlueOp.TriggerPositive;
-    }
+    }*/
 
     public static ISExp getUserOp(final Function<? super String, Optional<? extends ITimeValue>> userParameters)
     {
@@ -211,7 +207,7 @@ public enum Glue implements IResourceManagerReloadListener
                 }
                 throw new IllegalArgumentException("&load needs string argument, got " + cons.car);
             }
-        },
+        };/*,
         ModelClip("model_clip")
         {
             @Override
@@ -274,7 +270,7 @@ public enum Glue implements IResourceManagerReloadListener
                 }
                 throw new IllegalArgumentException("&trigger_positive needs a clip, a float and a string arguments, got " + args);
             }
-        };
+        };*/
 
         private static final ImmutableMap<ISExp, GlueOp> values;
 
@@ -316,9 +312,9 @@ public enum Glue implements IResourceManagerReloadListener
         Reader reader;
         if(manager == null && (Launch.blackboard == null || (Boolean) Launch.blackboard.get("fml.deobfuscatedEnvironment")))
         {
-            if(location == rootLibraryLocation)
+            if(location.equals(rootLibraryLocation))
             {
-                reader = new FileReader("assets/" + location.getResourceDomain() + "/plon/" + location.getResourcePath() + ".json");
+                reader = new InputStreamReader(Glue.class.getResourceAsStream("/assets/" + location.getResourceDomain() + "/plon/" + location.getResourcePath() + ".json"));
             }
             else
             {
@@ -344,6 +340,8 @@ public enum Glue implements IResourceManagerReloadListener
     {
         private final ImmutableMap<ISExp, ISExp> rootFrame;
         private final ISExp asmSource;
+
+        private ImmutableMap<String, Float> lastTriggers = ImmutableMap.of();
 
         private PlonAnimationStateMachine(ImmutableMap<ISExp, ISExp> rootFrame, ISExp asmSource, final ImmutableMap<String, ITimeValue> customParameters, ImmutableList<String> states, ImmutableMultimap<String, String> transitions, String startState)
         {
@@ -405,17 +403,18 @@ public enum Glue implements IResourceManagerReloadListener
             {
                 throw new IllegalArgumentException("asm_def applied to asm loaded from plon needs to eval to a map with a \"states\" key with a list value, got: " + exp);
             }
-            Cons cons = (Cons) exp;
+            IList list = (IList) exp;
             ImmutableList.Builder<String> stateBuilder = ImmutableList.builder();
-            while(cons.cdr != Nil.INSTANCE)
+            while(list != Nil.INSTANCE)
             {
+                Cons cons = (Cons) list;
                 ISExp state = cons.car;
                 if(!(state instanceof StringAtom))
                 {
                     throw new IllegalArgumentException("asm_def applied to asm loaded from plon needs to eval to a map with a \"states\" key with a list value, got: " + state);
                 }
                 stateBuilder.add(((StringAtom) state).value);
-                cons = (Cons) cons.cdr;
+                list = cons.cdr;
             }
             exp = asm.value.get(transitionsKey);
             if(!(exp instanceof IMap))
@@ -472,30 +471,102 @@ public enum Glue implements IResourceManagerReloadListener
             return new PlonAnimationStateMachine(rootFrame, asmSource, customParameters, stateBuilder.build(), transitions, ((StringAtom) exp).value);
         }
 
-        private ClipValue applyAsm(String state, float time)
+        private ISExp applyAsm(String state, float time)
         {
             ImmutableMap.Builder<ISExp, ISExp> builder = ImmutableMap.builder();
             builder.putAll(rootFrame);
             builder.put(makeSymbol("time"), makeFloat(time));
-            ISExp clip = in.eval(new Cons(makeSymbol("asm_run"), new Cons(asmSource, new Cons(makeString(state), Nil.INSTANCE))), builder.build());
-            if(!(clip instanceof ClipValue))
-            {
-                throw new IllegalArgumentException("asm_run applied to asm loaded from plon needs to eval to a clip, got: " + clip);
-            }
-            return (ClipValue) clip;
+            return in.eval(new Cons(makeSymbol("asm_run"), new Cons(asmSource, new Cons(makeString(state), Nil.INSTANCE))), builder.build());
         }
 
         @Override
         public Pair<IModelState, Iterable<Event>> apply(float time)
         {
-            ClipValue clip = applyAsm(currentState(), time);
-            if(lastPollTime == Float.NEGATIVE_INFINITY)
+            /*ISExp exp = applyAsm(currentState(), time);
+            if(!(exp instanceof ClipValue))
             {
-                lastPollTime = clip.time;
+                throw new IllegalArgumentException("asm_run applied to asm loaded from plon needs to eval to a clip, got: " + exp);
             }
-            Pair<IModelState, Iterable<Event>> pair = Clips.apply(clip.clip, lastPollTime, clip.time);
-            lastPollTime = clip.time;
-            return filterSpecialEvents(pair);
+            ClipValue clip = (ClipValue) exp;*/
+            ISExp clip = applyAsm(currentState(), time);
+            if(clip instanceof Cons && Interpreter.length(clip) == 3)
+            {
+                Cons c1 = (Cons) clip;
+                Cons c2 = (Cons) c1.cdr;
+                Cons c3 = (Cons) c2.cdr;
+                if(c1.car instanceof StringAtom && c2.car instanceof FloatAtom && c3.car instanceof IMap)
+                {
+                    String modelClipName = ((StringAtom) c1.car).value;
+                    int at = modelClipName.lastIndexOf('@');
+                    String location = modelClipName.substring(0, at);
+                    String clipName = modelClipName.substring(at + 1, modelClipName.length());
+                    ResourceLocation model;
+                    if (location.indexOf('#') != -1)
+                    {
+                        model = new ModelResourceLocation(location);
+                    }
+                    else
+                    {
+                        model = new ResourceLocation(location);
+                    }
+                    IClip rootClip = Clips.getModelClipNode(model, clipName);
+                    float clipTime = ((FloatAtom) c2.car).value;
+                    if(lastPollTime == Float.NEGATIVE_INFINITY)
+                    {
+                        lastPollTime = clipTime;
+                    }
+                    Pair<IModelState, Iterable<Event>> pair = Clips.apply(rootClip, lastPollTime, clipTime);
+                    ImmutableMap<String, Float> triggers;
+                    if(c3.car == MNil.INSTANCE)
+                    {
+                        triggers = ImmutableMap.of();
+                    }
+                    else
+                    {
+                        Map map = (Map) c3.car;
+                        ImmutableMap.Builder<String, Float> builder = ImmutableMap.builder();
+                        ImmutableList.Builder<Event> eventBuilder = ImmutableList.builder();
+                        for (java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : map.value.entrySet())
+                        {
+                            if(!(entry.getKey() instanceof StringAtom) || !(entry.getValue() instanceof Cons) || Interpreter.length(entry.getValue()) != 2)
+                            {
+                                throw new IllegalStateException("asm_run's returned map should only contain string keys and pair values, got: " + entry);
+                            }
+                            String triggerName = ((StringAtom) entry.getKey()).value;
+                            Cons c4 = (Cons) entry.getValue();
+                            Cons c5 = (Cons) c4.cdr;
+                            if(!(c4.car instanceof FloatAtom) || !(c5.car instanceof StringAtom))
+                            {
+                                throw new IllegalStateException("asm_run's returned map values should be pairs of floats and strings, got: " + entry.getValue());
+                            }
+                            float value = ((FloatAtom) c4.car).value;
+                            String event = ((StringAtom) c5.car).value;
+                            builder.put(triggerName, value);
+                            if((!lastTriggers.containsKey(triggerName) || lastTriggers.get(triggerName) < 0) && value >= 0)
+                            {
+                                eventBuilder.add(new Event(event, 0));
+                            }
+                        }
+                        triggers = builder.build();
+                        ImmutableList<Event> events = eventBuilder.build();
+                        if(!events.isEmpty())
+                        {
+                            pair = Pair.of(pair.getLeft(), Iterables.concat(pair.getRight(), events));
+                        }
+                    }
+                    lastPollTime = clipTime;
+                    lastTriggers = triggers;
+                    return filterSpecialEvents(pair);
+                }
+            }
+            throw new IllegalStateException("asm_run should return a list of the name, time and a map from trigger parameter names to their values, got" + clip);
+        }
+
+        @Override
+        public void transition(String newState)
+        {
+            super.transition(newState);
+            lastTriggers = ImmutableMap.of();
         }
     }
 
