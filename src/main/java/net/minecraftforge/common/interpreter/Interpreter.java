@@ -283,6 +283,20 @@ public class Interpreter
                 }
             }
         }
+        if (func instanceof Map)
+        {
+            Map map = (Map) func;
+            if(length(args) != 1)
+            {
+                throw new IllegalArgumentException("Can only apply map to 1 argument");
+            }
+            Cons c1 = (Cons) args;
+            if(map.value.containsKey(c1.car))
+            {
+                return map.value.get(c1.car);
+            }
+            throw new IllegalStateException("Map " + map + " doesn't have key " + c1.car);
+        }
         throw new IllegalArgumentException("Don't know how to apply: " + func);
     }
 
