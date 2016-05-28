@@ -1,10 +1,9 @@
-package net.minecraftforge.common.interpreter;
+package net.minecraftforge.common.plon;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
-import com.google.common.collect.UnmodifiableIterator;
 import com.google.gson.Gson;
 import com.google.gson.JsonParseException;
 import com.google.gson.TypeAdapter;
@@ -12,17 +11,12 @@ import com.google.gson.TypeAdapterFactory;
 import com.google.gson.reflect.TypeToken;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
-import net.minecraftforge.common.animation.ITimeValue;
-import org.apache.commons.lang3.NotImplementedException;
-import scala.tools.cmd.gen.AnyVals;
 
 import java.io.IOException;
 import java.util.Iterator;
-import java.util.Map;
+import java.util.regex.Pattern;
 
-import static net.minecraftforge.common.animation.TimeValues.opsPattern;
-import static net.minecraftforge.common.interpreter.Interpreter.length;
-import static net.minecraftforge.common.interpreter.Interpreter.mapSymbol;
+import static net.minecraftforge.common.plon.Interpreter.length;
 
 /**
  * Created by rainwarrior on 5/19/16.
@@ -31,6 +25,7 @@ public enum AST
 {
     ;
 
+    // public
     public static interface ISExp {}
 
     public static ISExp makeSymbol(String name)
@@ -47,6 +42,9 @@ public enum AST
     {
         return new FloatAtom(value);
     }
+
+    // private
+    private static final Pattern opsPattern = Pattern.compile("[+\\-*/mMrRfF]+");
 
     static interface IAtom extends ISExp {}
 
@@ -73,7 +71,7 @@ public enum AST
 
     static final class FloatAtom implements IAtom
     {
-        private final float value;
+        final float value;
 
         private FloatAtom(float value)
         {
@@ -500,53 +498,6 @@ public enum AST
         }
     }
 
-    static class User implements ICallableAtom
-    {
-        private final String name;
-        private final ITimeValue parameter;
-
-        User(String name, ITimeValue parameter)
-        {
-            this.name = name;
-            this.parameter = parameter;
-        }
-
-        @Override
-        public boolean equals(Object o)
-        {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
-            User user = (User) o;
-            return Objects.equal(parameter, user.parameter);
-        }
-
-        @Override
-        public int hashCode()
-        {
-            return Objects.hashCode(parameter);
-        }
-
-        @Override
-        public String toString()
-        {
-            return "&user[" + name + "]";
-        }
-
-        public FloatAtom apply(IList args)
-        {
-            if (length(args) != 1)
-            {
-                throw new IllegalArgumentException("User parameter \"" + name + "\" needs 1 argument, got " + args);
-            }
-            Cons cons = (Cons) args;
-            if (cons.car instanceof FloatAtom)
-            {
-                return new FloatAtom(parameter.apply(((FloatAtom) cons.car).value));
-            }
-            throw new IllegalArgumentException("User parameter \"" + name + "\" needs float argument, got " + cons.car);
-        }
-    }
-
     static interface IList extends ISExp {}
 
     static enum Nil implements IList
@@ -740,7 +691,7 @@ public enum AST
                         else
                         {
                             out.beginArray();
-                            write(out, mapSymbol);
+                            write(out, Interpreter.mapSymbol);
                             for(java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : map.value.entrySet())
                             {
                                 write(out, entry.getKey());
@@ -794,7 +745,7 @@ public enum AST
                             if (list instanceof Cons)
                             {
                                 Cons cons = (Cons) list;
-                                if (cons.car.equals(mapSymbol))
+                                if (cons.car.equals(Interpreter.mapSymbol))
                                 {
                                     // de-sugaring the map with non-string keys
                                     Map map = new Map(cons.cdr);

@@ -17,8 +17,8 @@ import io.netty.handler.codec.string.StringEncoder;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
 import joptsimple.internal.Strings;
-import net.minecraftforge.common.interpreter.AST;
-import net.minecraftforge.common.interpreter.Interpreter;
+import net.minecraftforge.common.plon.AST;
+import net.minecraftforge.common.plon.Interpreter;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 
 import java.io.FileReader;
