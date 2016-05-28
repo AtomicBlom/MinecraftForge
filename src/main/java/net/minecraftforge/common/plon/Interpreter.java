@@ -151,6 +151,36 @@ public class Interpreter
         return new Cons(makeSymbol("lambda"), new Cons(Nil.INSTANCE, new Cons(exp, Nil.INSTANCE)));
     }
 
+    private static ISExp beval(Cons args, IList env)
+    {
+        if(args.cdr == Nil.INSTANCE)
+        {
+            return eval(args.car, env);
+        }
+        ISExp definitions = args.car;
+        IMap frame;
+        if (definitions instanceof Map)
+        {
+            ImmutableMap.Builder<Symbol, ISExp> frameBuilder = ImmutableMap.builder();
+            Map map = (Map) definitions;
+            for (java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : map.value.entrySet())
+            {
+                addLabel(frameBuilder, entry.getKey(), entry.getValue());
+            }
+            frame = new Map(frameBuilder.build());
+        }
+        else
+        {
+            ISExp frameExp = eval(definitions, env);
+            if(!(frameExp instanceof IMap))
+            {
+                throw new IllegalArgumentException("bind needs either a map (that will be processed specially) or something that'll evaluate to it, got: " + frameExp);
+            }
+            frame = (IMap) frameExp;
+        }
+        return beval((Cons) args.cdr, new Cons(frame, env));
+    }
+
     @SuppressWarnings("StringEquality")
     private static ISExp eval(ISExp exp, IList env)
     {
@@ -203,43 +233,12 @@ public class Interpreter
                 }
                 else if (name == "bind")
                 {
-                    if (length(cons.cdr) != 2)
+                    if (cons.cdr == Nil.INSTANCE)
                     {
-                        throw new IllegalArgumentException("bind needs 2 arguments, got: " + cons.cdr);
+                        throw new IllegalArgumentException("bind needs at least 1 argument");
                     }
-                    Cons c2 = (Cons) cons.cdr;
-                    Cons c3 = (Cons) c2.cdr;
-                    ISExp definitions = c2.car;
-                    ImmutableMap.Builder<Symbol, ISExp> frame = ImmutableMap.builder();
-                    if (definitions instanceof Map)
-                    {
-                        Map map = (Map) definitions;
-                        for (java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : map.value.entrySet())
-                        {
-                            addLabel(frame, entry.getKey(), entry.getValue());
-                        }
-                    }
-                    else if (definitions instanceof IList)
-                    {
-                        IList list = (IList) definitions;
-                        while(list != Nil.INSTANCE)
-                        {
-                            Cons c4 = (Cons) list;
-                            if(c4.car instanceof IList && length(c4.car) == 2)
-                            {
-                                Cons c5 = (Cons) c4.car;
-                                Cons c6 = (Cons) c5.cdr;
-                                addLabel(frame, c5.car, c6.car);
-                            }
-                            else
-                            {
-                                throw new IllegalArgumentException("bind with a list must only have pairs, got: " + c4.car);
-                            }
-                            list = c4.cdr;
-                        }
-                    }
-                    ISExp body = c3.car;
-                    return eval(body, new Cons(new Map(frame.build()), env));
+                    Cons args = (Cons) cons.cdr;
+                    return beval(args, env);
                 }
                 // TODO: macro?
                 else if(name == "delay")
