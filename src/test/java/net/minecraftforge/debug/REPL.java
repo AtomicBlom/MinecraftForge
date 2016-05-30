@@ -38,7 +38,7 @@ public class REPL
     {
         final Map<AST.ISExp, AST.ISExp> dynamicEnv = Maps.newHashMap();
         final Map<String, ITimeValue> parameters = Maps.newHashMap();
-        dynamicEnv.put(AST.makeSymbol("load"), Glue.getLoadOp());
+        //dynamicEnv.put(AST.makeSymbol("load"), Glue.getLoadOp());
         //dynamicEnv.put(AST.makeSymbol("model_clip_flat"), Glue.getModelClip());
         //dynamicEnv.put(AST.makeSymbol("trigger_positive"), Glue.getTriggerPositive());
         dynamicEnv.put(AST.makeSymbol("user"), Glue.getUserOp(new Function<String, Optional<? extends ITimeValue>>()
@@ -54,7 +54,7 @@ public class REPL
             }
         }));
 
-        final Interpreter repl = new Interpreter();
+        final Interpreter repl = Glue.getInterpreter();
 
         final Gson gson = new GsonBuilder().registerTypeAdapterFactory(AST.SExpTypeAdapterFactory.INSTANCE).create();
 
@@ -109,8 +109,10 @@ public class REPL
                         {
                             exp = gson.fromJson(input, AST.ISExp.class);
                         }
+                        AST.ISType type = repl.infer(exp, ImmutableMap.copyOf(dynamicEnv));
+                        ctx.write("input type: " + type + "\r\n");
                         AST.ISExp result = repl.eval(exp, ImmutableMap.copyOf(dynamicEnv));
-                        ctx.write(result.toString() + "\r\n");
+                        ctx.write(result.toString() + ": " + result.getType() + "\r\n");
                     }
                 }
                 catch(Exception e)

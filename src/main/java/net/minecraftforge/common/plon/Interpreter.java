@@ -1,38 +1,37 @@
 package net.minecraftforge.common.plon;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
+
 
 import static net.minecraftforge.common.plon.AST.*;
 
 /**
  * Created by rainwarrior on 5/18/16.
  */
-public class Interpreter
+public abstract class Interpreter
 {
+    private final Map readFrame = new Map(ImmutableMap.of(makeSymbol("load"), new Load()
+    {
+        @Override
+        protected ISExp read(String location)
+        {
+            return Interpreter.this.read(location);
+        }
+    }));
+
+    protected abstract ISExp read(String location);
+
     public ISExp eval(ISExp exp, ImmutableMap<? extends ISExp, ? extends ISExp> topEnv)
     {
-        return eval(exp, new Cons(new Map(topEnv), new Cons(new Map(PrimOp.values), Nil.INSTANCE)));
+        return eval(exp, new Cons(new Map(topEnv), new Cons(readFrame, new Cons(new Map(PrimOp.values), Nil.INSTANCE))));
     }
 
     public ISExp eval(ISExp exp)
     {
-        return eval(exp, new Cons(new Map(PrimOp.values), Nil.INSTANCE));
-    }
-
-    Map loadFrame(Map map)
-    {
-        ImmutableMap.Builder<ISExp, ISExp> frameBuilder = ImmutableMap.builder();
-        for (java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : map.value.entrySet())
-        {
-            addLabel(frameBuilder, entry.getKey(), entry.getValue());
-        }
-        /*ImmutableMap<ISExp, ISExp> frame = frameBuilder.build();
-        env = new Cons(new Map(frame), env);
-        for (java.util.Map.Entry<ISExp, ISExp> entry : frame.entrySet())
-        {
-            frameBuilder.put(entry.getKey(), eval(entry.getValue(), env));
-        }*/
-        return new Map(frameBuilder.build());
+        return eval(exp, new Cons(readFrame, new Cons(new Map(PrimOp.values), Nil.INSTANCE)));
     }
 
     private static final ISExp labelSymbol = makeSymbol("&labeled");
@@ -88,7 +87,7 @@ public class Interpreter
         return new Cons(functionSymbol, new Cons(args, new Cons(body, new Cons(env, Nil.INSTANCE))));
     }
 
-    private static void addLabel(ImmutableMap.Builder<ISExp, ISExp> frame, ISExp key, ISExp value)
+    static void addLabel(ImmutableMap.Builder<ISExp, ISExp> frame, ISExp key, ISExp value)
     {
         if(key instanceof Symbol)
         {
@@ -107,7 +106,7 @@ public class Interpreter
         throw new IllegalArgumentException("can't label: " + key);
     }
 
-    private static ISExp unlabel(ISExp value, IList env)
+    private ISExp unlabel(ISExp value, IList env)
     {
         if(value instanceof Cons && ((Cons) value).car.equals(labelSymbol))
         {
@@ -137,7 +136,7 @@ public class Interpreter
         return value;
     }
 
-    private static ISExp lookup(IList env, Symbol name)
+    private ISExp lookup(IList env, Symbol name)
     {
         if (env == Nil.INSTANCE)
         {
@@ -167,14 +166,13 @@ public class Interpreter
         return new Cons(makeSymbol("lambda"), new Cons(Nil.INSTANCE, new Cons(exp, Nil.INSTANCE)));
     }
 
-    private static ISExp beval(Cons args, IList env)
+    private ISExp beval(Cons args, IList env)
     {
         if(args.cdr == Nil.INSTANCE)
         {
             return eval(args.car, env);
         }
         ISExp definitions = args.car;
-        IMap frame;
         if (definitions instanceof Map)
         {
             ImmutableMap.Builder<ISExp, ISExp> frameBuilder = ImmutableMap.builder();
@@ -183,38 +181,47 @@ public class Interpreter
             {
                 addLabel(frameBuilder, entry.getKey(), entry.getValue());
             }
-            frame = new Map(frameBuilder.build());
+            return beval((Cons) args.cdr, new Cons(new Map(frameBuilder.build()), env));
         }
         else
         {
-            ISExp frameExp = eval(definitions, env);
-            if(!(frameExp instanceof IMap))
+            if(definitions instanceof IList && length(definitions) == 2)
             {
-                throw new IllegalArgumentException("bind needs either a map (that will be processed specially) or something that'll evaluate to it, got: " + frameExp);
+                Cons c1 = (Cons) definitions;
+                Cons c2 = (Cons) c1.cdr;
+                if (c1.car.equals(makeSymbol("load")) && c2.car instanceof StringAtom)
+                {
+                    String location = ((StringAtom) c2.car).value;
+                    ISExp frameExp = read(location);
+                    if (!(frameExp instanceof IMap))
+                    {
+                        throw new IllegalArgumentException("load called from bind should return map, got: " + frameExp);
+                    }
+                    if(frameExp == MNil.INSTANCE)
+                    {
+                        return beval((Cons) args.cdr, env);
+                    }
+                    return beval((Cons) args.cdr, new Cons(loadFrame((Map) frameExp), env));
+                }
             }
-            frame = (IMap) frameExp;
         }
-        return beval((Cons) args.cdr, new Cons(frame, env));
+        throw new IllegalArgumentException("bind enviroments have to be either maps or load expressions.");
     }
 
     @SuppressWarnings("StringEquality")
-    private static ISExp eval(ISExp exp, IList env)
+    private ISExp eval(ISExp exp, IList env)
     {
-        if (
-            exp instanceof FloatAtom ||
-            exp instanceof StringAtom ||
-            exp == Nil.INSTANCE ||
-            exp == MNil.INSTANCE
-        ) {
-            return exp;
-        }
-        else if (exp instanceof Symbol)
+        if (exp instanceof Symbol)
         {
             return lookup(env, (Symbol) exp);
         }
         else if (exp instanceof ArithmSymbol)
         {
             return new ArithmOp((ArithmSymbol) exp);
+        }
+        else if (exp instanceof IAtom)
+        {
+            return exp;
         }
         else if (exp instanceof Cons)
         {
@@ -308,11 +315,11 @@ public class Interpreter
         throw new IllegalStateException("eval of " + exp);
     }
 
-    private static ISExp apply(ISExp func, IList args)
+    private ISExp apply(ISExp func, IList args)
     {
-        if (func instanceof ICallableAtom)
+        if (func instanceof ICallableExp)
         {
-            return ((ICallableAtom) func).apply(args);
+            return ((ICallableExp) func).apply(args);
         }
         if (func instanceof Cons)
         {
@@ -354,7 +361,7 @@ public class Interpreter
         throw new IllegalArgumentException("Don't know how to apply: " + func);
     }
 
-    private static IList evlis(IList list, IList env)
+    private IList evlis(IList list, IList env)
     {
         if (list == Nil.INSTANCE)
         {
@@ -362,5 +369,351 @@ public class Interpreter
         }
         Cons cons = (Cons) list;
         return new Cons(eval(cons.car, env), evlis(cons.cdr, env));
+    }
+
+    private static final class FreeVarProvider
+    {
+        private int nextVar = 0;
+        private TypeVar getFreshVar()
+        {
+            return new TypeVar("T" + nextVar++);
+        }
+    }
+
+    private void inferBindPair(ImmutableMap.Builder<Symbol, ISType> ctxBuilder, ImmutableMap<Symbol, ISType> context, FreeVarProvider vars, ISExp key, ISExp value)
+    {
+        if(key instanceof Symbol)
+        {
+            Symbol name = (Symbol) key;
+            ISType type = infer(context, vars, value);
+            ctxBuilder.put(name, type);
+            return;
+        }
+        // TODO?
+        /*else if(key instanceof Cons && ((Cons) key).car instanceof Symbol)
+        {
+            Cons cons = (Cons) key;
+            Symbol name = (Symbol) cons.car;
+            IList args = cons.cdr;
+            ctxBuilder.put(name, new Cons(labelSymbol, new Cons(args, new Cons(value, Nil.INSTANCE))));
+            return;
+        }*/
+        throw new IllegalArgumentException("can't type label: " + key);
+    }
+
+    private ISType binfer(ImmutableMap<? extends ISExp, ? extends ISType> context, FreeVarProvider vars, Cons args)
+    {
+        if(args.cdr == Nil.INSTANCE)
+        {
+            return infer(context, vars, args.car);
+        }
+        ISExp definitions = args.car;
+
+        IMap defs = null;
+
+        if (definitions instanceof Map)
+        {
+            defs = (Map) definitions;
+        }
+        else
+        {
+            if(definitions instanceof IList && length(definitions) == 2)
+            {
+                Cons c1 = (Cons) definitions;
+                Cons c2 = (Cons) c1.cdr;
+                if (c1.car.equals(makeSymbol("load")) && c2.car instanceof StringAtom)
+                {
+                    String location = ((StringAtom) c2.car).value;
+                    ISExp frameExp = read(location);
+                    if (!(frameExp instanceof IMap))
+                    {
+                        throw new IllegalArgumentException("load called from bind should return map, got: " + frameExp);
+                    }
+                    defs = (IMap) frameExp;
+                }
+            }
+        }
+        if(defs == MNil.INSTANCE)
+        {
+            return binfer(context, vars, (Cons) args.cdr);
+        }
+        if(defs != null)
+        {
+            return binfer(frameToContext(context, vars, loadFrame((Map) defs)), vars, (Cons) args.cdr);
+        }
+        throw new IllegalArgumentException("bind enviroments have to be either direct maps or direct load expressions.");
+    }
+
+    private ISType unlabelType(ISExp value, ImmutableMap<? extends ISExp, ? extends ISType> context, FreeVarProvider vars)
+    {
+        if(value instanceof Cons && ((Cons) value).car.equals(labelSymbol))
+        {
+            // FIXME
+            /*if(length(value) == 3)
+            {
+                Cons c2 = (Cons) ((Cons) value).cdr;
+                Cons c3 = (Cons) c2.cdr;
+                ISExp args = c2.car;
+                ISExp body = c3.car;
+                // function label
+                if(args instanceof IList)
+                {
+                    return makeFunction((IList) args, body, env);
+                }
+            }
+            else*/ if (length(value) == 2)
+            {
+                Cons c2 = (Cons) ((Cons) value).cdr;
+                // reference label
+                return infer(context, vars, c2.car);
+            }
+        }
+        return value.getType();
+    }
+
+    private ImmutableMap<ISExp, ISType> frameToContext(ImmutableMap<? extends ISExp, ? extends ISType> context, FreeVarProvider vars, Map frame)
+    {
+        ImmutableMap<ISExp, ISType> newContext;
+        java.util.Map<ISExp, ISType> ctxBuilder = Maps.newHashMap();
+        ctxBuilder.putAll(context);
+        for (java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : frame.value.entrySet())
+        {
+            // new ones shadow old ones. TODO: unify with the list approach?
+            ctxBuilder.put((Symbol) entry.getKey(), vars.getFreshVar());
+        }
+        newContext = ImmutableMap.copyOf(ctxBuilder);
+        for (java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : frame.value.entrySet())
+        {
+            unify(newContext.get(entry.getKey()), unlabelType(entry.getValue(), newContext, vars));
+            //inferBindPair(ctxBuilder, context, vars, entry.getKey(), entry.getValue());
+        }
+        return newContext;
+    }
+
+    private ImmutableMap<ISExp, ISType> envToContext(FreeVarProvider provider, IList env)
+    {
+        if (env == Nil.INSTANCE)
+        {
+            return ImmutableMap.of();
+        }
+        Cons cons = (Cons) env;
+        return frameToContext(envToContext(provider, cons.cdr), provider, (Map) cons.car);
+    }
+
+    public ISType infer(ISExp exp, ImmutableMap<? extends ISExp, ? extends ISExp> topEnv)
+    {
+        FreeVarProvider provider = new FreeVarProvider();
+        return infer(envToContext(provider, new Cons(new Map(topEnv), new Cons(readFrame, new Cons(new Map(PrimOp.values), Nil.INSTANCE)))), provider, exp);
+    }
+
+    public ISType infer(ISExp exp)
+    {
+        FreeVarProvider provider = new FreeVarProvider();
+        return infer(envToContext(provider, new Cons(readFrame, new Cons(new Map(PrimOp.values), Nil.INSTANCE))), provider, exp);
+    }
+
+    private static ISType reify(ISType type, ImmutableSet<? extends ISType> vars, java.util.Map<TypeVar, TypeVar> newVars, FreeVarProvider varProvider)
+    {
+        type = find(type);
+        if(type instanceof TypeVar)
+        {
+            if(!vars.contains(type))
+            {
+                if(!newVars.containsKey(type))
+                {
+                    newVars.put((TypeVar) type, varProvider.getFreshVar());
+                }
+                return newVars.get(type);
+            }
+        }
+        if(type instanceof AbsType)
+        {
+            AbsType absType = (AbsType) type;
+            ImmutableList.Builder<ISType> args = ImmutableList.builder();
+            for(ISType arg : absType.args)
+            {
+                args.add(reify(arg, vars, newVars, varProvider));
+            }
+            return new AbsType(args.build(), reify(absType.ret, vars, newVars, varProvider));
+        }
+        return type;
+    }
+
+    @SuppressWarnings("StringEquality")
+    private ISType infer(ImmutableMap<? extends ISExp, ? extends ISType> context, FreeVarProvider vars, ISExp exp)
+    {
+        if (exp instanceof Symbol)
+        {
+            if(!context.containsKey(exp))
+            {
+                // fixme?
+                throw new IllegalStateException("type lookup of unknown symbol " + exp);
+            }
+            return reify(context.get(exp), ImmutableSet.copyOf(context.values()), Maps.<TypeVar, TypeVar>newHashMap(), vars);
+        }
+        else if (exp instanceof ArithmSymbol)
+        {
+            return ArithmOp.makeArithmType((ArithmSymbol) exp);
+        }
+        else if (exp instanceof Cons)
+        {
+            Cons cons = (Cons) exp;
+            if (cons.car instanceof Symbol)
+            {
+                String name = ((Symbol) cons.car).value;
+                if (name == "quote")
+                {
+                    if (length(cons.cdr) != 1)
+                    {
+                        throw new IllegalArgumentException("quote needs 1 argument, got: " + cons.cdr);
+                    }
+                    Cons cdr = (Cons) cons.cdr;
+                    return cdr.car.getType();
+                }
+                else if (name == "lambda")
+                {
+                    if (length(cons.cdr) != 2)
+                    {
+                        throw new IllegalArgumentException("lambda needs 2 arguments, got: " + cons.cdr);
+                    }
+                    Cons c2 = (Cons) cons.cdr;
+                    Cons c3 = (Cons) c2.cdr;
+                    if (!(c2.car instanceof IList))
+                    {
+                        throw new IllegalArgumentException("lambda needs a list as a first argument, got: " + c2.car);
+                    }
+                    IList args = (IList) c2.car;
+                    ISExp body = c3.car;
+                    if(args == Nil.INSTANCE)
+                    {
+                        return new AbsType(ImmutableList.<ISType>of(), infer(context, vars, body));
+                    }
+                    java.util.Map<ISExp, ISType> newContext = Maps.newHashMap();
+                    ImmutableList.Builder<ISType> argTypesBuilder = ImmutableList.builder();
+                    newContext.putAll(context);
+                    while(args != Nil.INSTANCE)
+                    {
+                        Cons c4 = (Cons) args;
+                        Symbol arg = (Symbol) c4.car;
+                        ISType argType = vars.getFreshVar();
+                        // new names shadow old names
+                        newContext.put(arg, argType);
+                        argTypesBuilder.add(argType);
+                        args = c4.cdr;
+                    }
+                    ISType bodyType = infer(ImmutableMap.copyOf(newContext), vars, body);
+                    return new AbsType(argTypesBuilder.build(), bodyType);
+                }
+                else if (name == "bind")
+                {
+                    if (cons.cdr == Nil.INSTANCE)
+                    {
+                        throw new IllegalArgumentException("bind needs at least 1 argument");
+                    }
+                    Cons args = (Cons) cons.cdr;
+                    return binfer(context, vars, args);
+                }
+                // dirty hax
+                else if (name == "list")
+                {
+                    return PrimTypes.List.type;
+                }
+                else if (name == "map")
+                {
+                    return PrimTypes.Map.type;
+                }
+                // even dirtier hax
+                else if (name == "car")
+                {
+                    if (length(cons.cdr) != 1)
+                    {
+                        throw new IllegalArgumentException("car needs 1 argument, got: " + cons.cdr);
+                    }
+                    Cons cdr = (Cons) cons.cdr;
+                    unify(cdr.getType(), PrimTypes.List.type);
+                    return vars.getFreshVar();
+                }
+                else if (name == "carm")
+                {
+                    if (length(cons.cdr) != 1)
+                    {
+                        throw new IllegalArgumentException("car needs 1 argument, got: " + cons.cdr);
+                    }
+                    Cons cdr = (Cons) cons.cdr;
+                    unify(cdr.getType(), PrimTypes.List.type);
+                    return vars.getFreshVar();
+                }
+                else if (name == "delay")
+                {
+                    if (length(cons.cdr) != 1)
+                    {
+                        throw new IllegalArgumentException("delay needs 1 argument, got: " + exp);
+                    }
+                    Cons cdr = (Cons) cons.cdr;
+                    return new AbsType(ImmutableList.<ISType>of(), infer(context, vars, cdr.car));
+                }
+                else if (name == "delay_values")
+                {
+                    return PrimTypes.Map.type;
+                }
+            }
+            ISType funcType = infer(context, vars, cons.car);
+            IList args = cons.cdr;
+            ImmutableList.Builder<ISType> argTypesBuilder = ImmutableList.builder();
+            while(args != Nil.INSTANCE)
+            {
+                Cons c2 = (Cons) args;
+                argTypesBuilder.add(infer(context, vars, c2.car));
+                args = c2.cdr;
+            }
+            ISType bodyType = vars.getFreshVar();
+            unify(funcType, new AbsType(argTypesBuilder.build(), bodyType));
+            return bodyType;
+        }
+        return exp.getType();
+    }
+
+    static void unify(ISType first, ISType second)
+    {
+        ISType firstLink = find(first);
+        ISType secondLink = find(second);
+        if(firstLink instanceof TypeVar)
+        {
+            ((TypeVar) firstLink).union(second);
+            return;
+        }
+        else if(secondLink instanceof TypeVar)
+        {
+            ((TypeVar) secondLink).union(first);
+            return;
+        }
+        else if(firstLink instanceof AbsType && secondLink == PrimTypes.Map.type)
+        {
+            AbsType type = (AbsType) firstLink;
+            if(type.args.size() == 1)
+            {
+                unify(type.args.get(0), PrimTypes.String.type);
+                return;
+            }
+        }
+        else if(firstLink instanceof AbsType && secondLink instanceof AbsType)
+        {
+            AbsType firstAbs = (AbsType) firstLink;
+            AbsType secondAbs = (AbsType) secondLink;
+            unify(firstAbs.ret, secondAbs.ret);
+            if(firstAbs.args.size() == secondAbs.args.size())
+            {
+                for(int i = 0; i < firstAbs.args.size(); i++)
+                {
+                    unify(firstAbs.args.get(i), secondAbs.args.get(i));
+                }
+                return;
+            }
+        }
+        else if(firstLink.equals(secondLink))
+        {
+            return;
+        }
+        throw new IllegalStateException("Type error: can't unify " + firstLink + " and " + secondLink);
     }
 }

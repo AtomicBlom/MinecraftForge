@@ -36,12 +36,12 @@ public enum Glue implements IResourceManagerReloadListener
 {
     INSTANCE;
 
-    public static ISExp getLoadOp()
+    /*public static ISExp getLoadOp()
     {
         return GlueOp.Load;
     }
 
-    /*public static ISExp getModelClip()
+    public static ISExp getModelClip()
     {
         return GlueOp.ModelClip;
     }
@@ -51,10 +51,21 @@ public enum Glue implements IResourceManagerReloadListener
         return GlueOp.TriggerPositive;
     }*/
 
+    public static Interpreter getInterpreter()
+    {
+        return in;
+    }
+
     public static ISExp getUserOp(final Function<? super String, Optional<? extends ITimeValue>> userParameters)
     {
-        return new ICallableAtom()
+        return new ICallableExp()
         {
+            @Override
+            public ISType getType()
+            {
+                return User.asbType;
+            }
+
             @Override
             public ISExp apply(IList args)
             {
@@ -87,10 +98,26 @@ public enum Glue implements IResourceManagerReloadListener
     private static IResourceManager manager;
     private static final ResourceLocation rootLibraryLocation = new ResourceLocation("forge", "root_library_unstable");
     private static Map rootLibrary;
-    private static final Interpreter in = new Interpreter();
-
-    private static class User implements ICallableAtom
+    private static final Interpreter in = new Interpreter()
     {
+        @Override
+        protected ISExp read(String location)
+        {
+            try
+            {
+                return Glue.read(new ResourceLocation(location));
+            }
+            catch (IOException e)
+            {
+                throw new IllegalArgumentException("Couldn't load " + location, e);
+            }
+        }
+    };
+
+    private static class User implements ICallableExp
+    {
+        private static final AbsType type = new AbsType(ImmutableList.<ISType>of(PrimTypes.Float.type), PrimTypes.Float.type);
+        private static final AbsType asbType = new AbsType(ImmutableList.<ISType>of(PrimTypes.String.type), type);
         private final String name;
         private final ITimeValue parameter;
 
@@ -134,9 +161,15 @@ public enum Glue implements IResourceManagerReloadListener
             }
             throw new IllegalArgumentException("User parameter \"" + name + "\" needs float argument, got " + cons.car);
         }
+
+        @Override
+        public ISType getType()
+        {
+            return type;
+        }
     }
 
-    private static class ClipValue implements IAtom
+    /*private static class ClipValue implements IAtom
     {
         private final IClip clip;
         private final float time;
@@ -167,47 +200,15 @@ public enum Glue implements IResourceManagerReloadListener
         {
             return "&clip[" + clip + ", " + time + "]";
         }
-    }
+    }*/
 
     private static ResourceLocation getPlonLocation(ResourceLocation loc)
     {
         return new ResourceLocation(loc.getResourceDomain(), "plon/" + loc.getResourcePath() + ".json");
     }
 
-    private enum GlueOp implements ICallableAtom
+    /*private enum GlueOp implements ICallableExp
     {
-        Load("load")
-        {
-            @Override
-            public ISExp apply(IList args)
-            {
-                if (Interpreter.length(args) != 1)
-                {
-                    throw new IllegalArgumentException("&load needs 1 argument, got " + args);
-                }
-                Cons cons = (Cons) args;
-                if (cons.car instanceof StringAtom)
-                {
-                    String location = ((StringAtom) cons.car).value;
-                    ResourceLocation plonLocation = new ResourceLocation(location);
-                    try
-                    {
-                        ISExp exp = read(plonLocation);
-                        if(!(exp instanceof Map))
-                        {
-                            throw new IllegalArgumentException("Loaded file " + plonLocation + " is not a map: " + exp);
-                        }
-                        Map map = (Map) exp;
-                        return in.loadFrame(map);
-                    }
-                    catch(IOException e)
-                    {
-                        throw new IllegalArgumentException("Couldn't load file " + plonLocation, e);
-                    }
-                }
-                throw new IllegalArgumentException("&load needs string argument, got " + cons.car);
-            }
-        };/*,
         ModelClip("model_clip")
         {
             @Override
@@ -270,7 +271,7 @@ public enum Glue implements IResourceManagerReloadListener
                 }
                 throw new IllegalArgumentException("&trigger_positive needs a clip, a float and a string arguments, got " + args);
             }
-        };*/
+        };
 
         private static final ImmutableMap<ISExp, GlueOp> values;
 
@@ -298,7 +299,7 @@ public enum Glue implements IResourceManagerReloadListener
         {
             return "&" + name;
         }
-    }
+    }*/
 
     public static IAnimationStateMachine loadASM(ResourceLocation location, ImmutableMap<String, ITimeValue> customParameters) throws IOException
     {
@@ -370,7 +371,7 @@ public enum Glue implements IResourceManagerReloadListener
                 }
             });
             java.util.Map<ISExp, ISExp> rootFrame = Maps.newHashMap();
-            rootFrame.putAll(GlueOp.values);
+            //rootFrame.putAll(GlueOp.values);
             rootFrame.put(AST.makeSymbol("user"), userResolver);
             rootFrame.putAll(rootLibrary.value);
             return ImmutableMap.copyOf(rootFrame);
@@ -379,12 +380,20 @@ public enum Glue implements IResourceManagerReloadListener
         private static PlonAnimationStateMachine create(ISExp asmSource, final ImmutableMap<String, ITimeValue> customParameters)
         {
             ImmutableMap<ISExp, ISExp> rootFrame = makeRootFrame(customParameters);
-            ISExp asmDef = in.eval(new Cons(makeSymbol("asm_def"), new Cons(asmSource, Nil.INSTANCE)), rootFrame);
+            ISExp source = new Cons(makeSymbol("asm_def"), new Cons(asmSource, Nil.INSTANCE));
+            ImmutableMap.Builder<ISExp, ISExp> frameBuilder = ImmutableMap.builder();
+            frameBuilder.putAll(rootFrame);
+            frameBuilder.put(makeSymbol("time"), makeFloat(0));
+            ImmutableMap<ISExp, ISExp> checkFrame = frameBuilder.build();
+            // type check that result of asm_def is a map
+            ISType sType = in.infer(source, checkFrame);
+            Interpreter.unify(sType, PrimTypes.Map.type);
+            // and run it
+            ISExp asmDef = in.eval(source, checkFrame);
+            // type check that result of asm_run is a map
+            ISType runType = in.infer(new Cons(makeSymbol("asm_run"), new Cons(asmSource, new Cons(makeString(null), Nil.INSTANCE))), checkFrame);
+            Interpreter.unify(runType, PrimTypes.Map.type);
             // FIXME make exception strings less silly
-            if(!(asmDef instanceof Map))
-            {
-                throw new IllegalArgumentException("asm_def applied to asm loaded from plon needs to eval to a map");
-            }
             Map asm = (Map) asmDef;
             if(!asm.value.containsKey(statesKey))
             {
@@ -592,9 +601,9 @@ public enum Glue implements IResourceManagerReloadListener
             throw new IllegalStateException("Root plon library isn't a map");
         }
         Map map = (Map) exp;
-        map = in.loadFrame(map);
+        map = AST.loadFrame(map);
         ImmutableMap.Builder<ISExp, ISExp> builder = ImmutableMap.builder();
-        builder.putAll(GlueOp.values);
+        //builder.putAll(GlueOp.values);
         builder.putAll(map.value);
         rootLibrary = new Map(builder.build());
     }
