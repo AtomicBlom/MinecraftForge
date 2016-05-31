@@ -4,7 +4,6 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import com.google.gson.JsonParseException;
@@ -13,14 +12,11 @@ import com.google.gson.TypeAdapterFactory;
 import com.google.gson.reflect.TypeToken;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
-import net.minecraftforge.common.util.DisjointSet;
 
 import java.io.IOException;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.regex.Pattern;
-
-import static net.minecraftforge.common.plon.Interpreter.length;
 
 /**
  * Created by rainwarrior on 5/19/16.
@@ -65,7 +61,7 @@ public enum AST
         ISExp apply(IList args);
     }
 
-    /*static enum Unbound implements IAtom
+    static enum Unbound implements ISExp
     {
         INSTANCE;
 
@@ -74,7 +70,13 @@ public enum AST
         {
             return "&unbound";
         }
-    }*/
+
+        @Override
+        public ISExp getType()
+        {
+            return PrimTypes.Invalid.type;
+        }
+    }
 
     static final class FloatAtom implements IAtom
     {
@@ -353,7 +355,7 @@ public enum AST
         @Override
         public ISExp apply(IList args)
         {
-            if (Interpreter.length(args) != 1)
+            if (length(args) != 1)
             {
                 throw new IllegalArgumentException("&load needs 1 argument, got " + args);
             }
@@ -779,30 +781,6 @@ public enum AST
         }
     }
 
-    public static ImmutableMap<ISExp, ISExp> buildTypeMap(DisjointSet<ISExp> union)
-    {
-        ImmutableMap<ISExp, ImmutableSet<ISExp>> map = union.toMap();
-        ImmutableMap.Builder<ISExp, ISExp> builder = ImmutableMap.builder();
-        for (ISExp from : map.keySet())
-        {
-            ISExp to = null;
-            // can be faster since values have a lot of repeats
-            for(ISExp candidate : map.get(from))
-            {
-                if(!(candidate instanceof Symbol))
-                {
-                    to = candidate;
-                    break;
-                }
-            }
-            if(to != null)
-            {
-                builder.put(from, to);
-            }
-        }
-        return builder.build();
-    }
-
     static enum PrimTypes
     {
         Float("float"),
@@ -828,102 +806,6 @@ public enum AST
             type = new Cons(arg, type);
         }
         return type;
-    }
-
-    static ISExp find(ISExp type, DisjointSet<ISExp> union)
-    {
-        if(type instanceof Symbol)
-        {
-            Symbol var = (Symbol) type;
-            union.find(var).or(var);
-        }
-        return type;
-    }
-
-    private static boolean occurs(Symbol type, ISExp other, DisjointSet<ISExp> union)
-    {
-        ISExp link = find(other, union);
-        if(other instanceof Symbol)
-        {
-            // FIXME: ==?
-            return type.equals(other);
-        }
-        else if(other instanceof IList)
-        {
-            IList list = (IList) other;
-            while(list != Nil.INSTANCE)
-            {
-                Cons cons = (Cons) list;
-                if(occurs(type, cons.car, union))
-                {
-                    return true;
-                }
-                list = cons.cdr;
-            }
-        }
-        return false;
-    }
-
-    static void union(Symbol type, ISExp other, DisjointSet<ISExp> union)
-    {
-        if(!type.equals(other))
-        {
-            if(occurs(type, other, union))
-            {
-                throw new IllegalStateException("recursive type: " + type + " = " + other);
-            }
-            // TODO: move makeSet to context?
-            union.makeSet(type);
-            union.makeSet(other);
-            union.union(type, other);
-        }
-    }
-
-    public static String typeToString(ISExp type, ImmutableMap<? extends ISExp, ? extends ISExp> union)
-    {
-        if(type instanceof StringAtom)
-        {
-            return ((StringAtom) type).value;
-        }
-        else if(type instanceof Symbol)
-        {
-            if(union.containsKey(type))
-            {
-                ISExp target = union.get(type);
-                if(type != target)
-                {
-                    return typeToString(target, union);
-                }
-            }
-            return ((Symbol) type).value;
-        }
-        Cons cons = (Cons)type;
-        String r;
-        if(length(type) == 2)
-        {
-            r = typeToString(cons.car, union) + " -> ";
-            cons = (Cons) cons.cdr;
-        }
-        else
-        {
-            r = "(";
-            while(cons.cdr != Nil.INSTANCE)
-            {
-                r += typeToString(cons.car, union);
-                cons = (Cons) cons.cdr;
-                if(cons.cdr != Nil.INSTANCE)
-                {
-                    r += ", ";
-                }
-            }
-            r += ") -> ";
-        }
-        if(cons.car instanceof IList)
-        {
-            r += "(" + typeToString(cons.car, union) + ")";
-        }
-        r += typeToString(cons.car, union);
-        return r;
     }
 
     public static enum SExpTypeAdapterFactory implements TypeAdapterFactory
@@ -1069,5 +951,22 @@ public enum AST
                 }
             };
         }
+    }
+
+    static int length(ISExp exp)
+    {
+        if (exp == Nil.INSTANCE || exp == MNil.INSTANCE)
+        {
+            return 0;
+        }
+        if (exp instanceof Cons)
+        {
+            return 1 + length(((Cons) exp).cdr);
+        }
+        if (exp instanceof Map)
+        {
+            return ((Map) exp).value.size();
+        }
+        throw new IllegalArgumentException("Length called neither on a list nor on a map");
     }
 }

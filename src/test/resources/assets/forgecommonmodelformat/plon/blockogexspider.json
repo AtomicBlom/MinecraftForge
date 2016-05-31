@@ -1,6 +1,5 @@
 ["#bind",
   ["#load", " forge:root_library_unstable"],
-  //["#load", " src/main/resources/assets/forge/plon/root_library_unstable"],
   {
     // #time will be bound from the outside
 

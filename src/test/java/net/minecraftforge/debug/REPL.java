@@ -22,9 +22,9 @@ import joptsimple.internal.Strings;
 import net.minecraftforge.common.animation.ITimeValue;
 import net.minecraftforge.common.animation.TimeValues;
 import net.minecraftforge.common.plon.AST;
-import net.minecraftforge.common.plon.Glue;
 import net.minecraftforge.common.plon.Interpreter;
-import net.minecraftforge.common.util.DisjointSet;
+import net.minecraftforge.common.plon.Glue;
+import net.minecraftforge.common.plon.Unifier;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 
 import java.io.FileReader;
@@ -110,10 +110,10 @@ public class REPL
                         {
                             exp = gson.fromJson(input, AST.ISExp.class);
                         }
-                        DisjointSet<AST.ISExp> union = new DisjointSet<AST.ISExp>();
-                        AST.ISExp type = repl.infer(exp, ImmutableMap.copyOf(dynamicEnv), union);
-                        ImmutableMap<AST.ISExp, AST.ISExp> typeMap = AST.buildTypeMap(union);
-                        ctx.write("input type: " + AST.typeToString(type, typeMap) + "\r\n");
+                        Unifier unifier = new Unifier();
+                        AST.ISExp type = repl.infer(exp, ImmutableMap.copyOf(dynamicEnv), unifier);
+                        ImmutableMap<AST.ISExp, AST.ISExp> typeMap = unifier.buildTypeMap();
+                        ctx.write("input type: " + Unifier.typeToString(type, typeMap) + "\r\n");
                         AST.ISExp result = repl.eval(exp, ImmutableMap.copyOf(dynamicEnv));
                         ctx.write(result.toString() + ": " + result.getType() + "\r\n");
                     }

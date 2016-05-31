@@ -20,7 +20,6 @@ import net.minecraftforge.common.model.animation.AnimationStateMachineBase;
 import net.minecraftforge.common.model.animation.Clips;
 import net.minecraftforge.common.model.animation.IAnimationStateMachine;
 import net.minecraftforge.common.model.animation.IClip;
-import net.minecraftforge.common.util.DisjointSet;
 import org.apache.commons.lang3.tuple.Pair;
 
 /**
@@ -70,7 +69,7 @@ public enum Glue implements IResourceManagerReloadListener
             @Override
             public ISExp apply(IList args)
             {
-                if (Interpreter.length(args) != 1)
+                if (length(args) != 1)
                 {
                     throw new IllegalArgumentException("user needs 1 argument, got: " + args);
                 }
@@ -151,7 +150,7 @@ public enum Glue implements IResourceManagerReloadListener
 
         public ISExp apply(IList args)
         {
-            if (Interpreter.length(args) != 1)
+            if (length(args) != 1)
             {
                 throw new IllegalArgumentException("User parameter \"" + name + "\" needs 1 argument, got " + args);
             }
@@ -387,15 +386,15 @@ public enum Glue implements IResourceManagerReloadListener
             frameBuilder.put(makeSymbol("time"), makeFloat(0));
             ImmutableMap<ISExp, ISExp> checkFrame = frameBuilder.build();
             // type check that result of asm_def is a map
-            DisjointSet<ISExp> union = new DisjointSet<ISExp>();
-            ISExp sType = in.infer(source, checkFrame, union);
-            Interpreter.unify(sType, PrimTypes.Map.type, union);
+            Unifier unifier = new Unifier();
+            ISExp sType = in.infer(source, checkFrame, unifier);
+            unifier.unify(sType, PrimTypes.Map.type);
             // and run it
             ISExp asmDef = in.eval(source, checkFrame);
+            unifier = new Unifier();
             // type check that result of asm_run is a map
-            union = new DisjointSet<ISExp>();
-            ISExp runType = in.infer(new Cons(makeSymbol("asm_run"), new Cons(asmSource, new Cons(makeString(null), Nil.INSTANCE))), checkFrame, union);
-            Interpreter.unify(runType, PrimTypes.Map.type, union);
+            ISExp runType = in.infer(new Cons(makeSymbol("asm_run"), new Cons(asmSource, new Cons(makeString(null), Nil.INSTANCE))), checkFrame, unifier);
+            unifier.unify(runType, PrimTypes.Map.type);
             // FIXME make exception strings less silly
             Map asm = (Map) asmDef;
             if(!asm.value.containsKey(statesKey))
@@ -501,7 +500,7 @@ public enum Glue implements IResourceManagerReloadListener
             }
             ClipValue clip = (ClipValue) exp;*/
             ISExp clip = applyAsm(currentState(), time);
-            if(clip instanceof Cons && Interpreter.length(clip) == 3)
+            if(clip instanceof Cons && length(clip) == 3)
             {
                 Cons c1 = (Cons) clip;
                 Cons c2 = (Cons) c1.cdr;
@@ -540,7 +539,7 @@ public enum Glue implements IResourceManagerReloadListener
                         ImmutableList.Builder<Event> eventBuilder = ImmutableList.builder();
                         for (java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : map.value.entrySet())
                         {
-                            if(!(entry.getKey() instanceof StringAtom) || !(entry.getValue() instanceof Cons) || Interpreter.length(entry.getValue()) != 2)
+                            if(!(entry.getKey() instanceof StringAtom) || !(entry.getValue() instanceof Cons) || length(entry.getValue()) != 2)
                             {
                                 throw new IllegalStateException("asm_run's returned map should only contain string keys and pair values, got: " + entry);
                             }
