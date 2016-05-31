@@ -4,6 +4,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import com.google.gson.JsonParseException;
@@ -12,6 +13,7 @@ import com.google.gson.TypeAdapterFactory;
 import com.google.gson.reflect.TypeToken;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
+import net.minecraftforge.common.util.DisjointSet;
 
 import java.io.IOException;
 import java.util.Collections;
@@ -777,7 +779,33 @@ public enum AST
         }
     }
 
-    public static interface ISType {}
+    public static ImmutableMap<ISType, ISType> buildTypeMap(DisjointSet<ISType> union)
+    {
+        ImmutableMap<ISType, ImmutableSet<ISType>> map = union.toMap();
+        ImmutableMap.Builder<ISType, ISType> builder = ImmutableMap.builder();
+        for (ISType from : map.keySet())
+        {
+            ISType to = null;
+            // can be faster since values have a lot of repeats
+            for(ISType candidate : map.get(from))
+            {
+                if(!(candidate instanceof TypeVar))
+                {
+                    to = candidate;
+                    break;
+                }
+            }
+            if(to != null)
+            {
+                builder.put(from, to);
+            }
+        }
+        return builder.build();
+    }
+
+    public static interface ISType {
+        String toString(ImmutableMap<? extends ISType, ? extends ISType> union);
+    }
 
     private static final class PrimType implements ISType
     {
@@ -801,6 +829,12 @@ public enum AST
         public int hashCode()
         {
             return Objects.hashCode(type);
+        }
+
+        @Override
+        public String toString(ImmutableMap<? extends ISType, ? extends ISType> union)
+        {
+            return type;
         }
 
         @Override
@@ -856,33 +890,44 @@ public enum AST
         @Override
         public String toString()
         {
+            return toString(ImmutableMap.<ISType, ISType>of());
+        }
+
+        @Override
+        public String toString(ImmutableMap<? extends ISType, ? extends ISType> union)
+        {
             String r;
             if(args.size() == 1)
             {
-                r = args.get(0) + " -> ";
+                r = args.get(0).toString(union) + " -> ";
             }
             else
             {
-                r = "(" + Joiner.on(", ").join(args) + ") -> ";
+                r = "(";
+                for(int i = 0; i < args.size(); i++)
+                {
+                    r += args.get(i).toString(union);
+                    if (i < args.size() - 1)
+                    {
+                        r += ", ";
+                    }
+                }
+                r += ") -> ";
             }
             if(ret instanceof AbsType)
             {
-                return r + "(" + ret + ")";
+                return r + "(" + ret.toString(union) + ")";
             }
-            return r + ret;
+            return r + ret.toString(union);
         }
     }
 
-    static ISType find(ISType type)
+    static ISType find(ISType type, DisjointSet<ISType> union)
     {
         if(type instanceof TypeVar)
         {
             TypeVar var = (TypeVar) type;
-            if(var.link != var)
-            {
-                var.link = find(var.link);
-            }
-            return var.link;
+            union.find(var).or(var);
         }
         return type;
     }
@@ -890,7 +935,6 @@ public enum AST
     static final class TypeVar implements ISType
     {
         private final String name;
-        ISType link = this;
 
         TypeVar(String name)
         {
@@ -915,16 +959,26 @@ public enum AST
         @Override
         public String toString()
         {
-            if(link == this)
-            {
-                return name;
-            }
-            return link.toString();
+            return name;
         }
 
-        private boolean occurs(ISType type)
+        @Override
+        public String toString(ImmutableMap<? extends ISType, ? extends ISType> union)
         {
-            ISType link = find(type);
+            if(union.containsKey(this))
+            {
+                ISType type = union.get(this);
+                if(this != type)
+                {
+                    return union.get(this).toString(union);
+                }
+            }
+            return name;
+        }
+
+        private boolean occurs(ISType type, DisjointSet<ISType> union)
+        {
+            ISType link = find(type, union);
             if(type instanceof TypeVar)
             {
                 return this == link;
@@ -934,25 +988,28 @@ public enum AST
                 AbsType absType = (AbsType) type;
                 for(ISType arg : absType.args)
                 {
-                    if(occurs(arg))
+                    if(occurs(arg, union))
                     {
                         return true;
                     }
                 }
-                return occurs(absType.ret);
+                return occurs(absType.ret, union);
             }
             return false;
         }
 
-        void union(ISType type)
+        void union(ISType type, DisjointSet<ISType> union)
         {
             if(this != type)
             {
-                if(occurs(type))
+                if(occurs(type, union))
                 {
                     throw new IllegalStateException("recursive type: " + this + " = " + type);
                 }
-                link = type;
+                // TODO: move makeSet to context?
+                union.makeSet(this);
+                union.makeSet(type);
+                union.union(this, type);
             }
         }
     }

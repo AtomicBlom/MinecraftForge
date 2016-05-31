@@ -24,6 +24,7 @@ import net.minecraftforge.common.animation.TimeValues;
 import net.minecraftforge.common.plon.AST;
 import net.minecraftforge.common.plon.Glue;
 import net.minecraftforge.common.plon.Interpreter;
+import net.minecraftforge.common.util.DisjointSet;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 
 import java.io.FileReader;
@@ -109,8 +110,10 @@ public class REPL
                         {
                             exp = gson.fromJson(input, AST.ISExp.class);
                         }
-                        AST.ISType type = repl.infer(exp, ImmutableMap.copyOf(dynamicEnv));
-                        ctx.write("input type: " + type + "\r\n");
+                        DisjointSet<AST.ISType> union = new DisjointSet<AST.ISType>();
+                        AST.ISType type = repl.infer(exp, ImmutableMap.copyOf(dynamicEnv), union);
+                        ImmutableMap<AST.ISType, AST.ISType> typeMap = AST.buildTypeMap(union);
+                        ctx.write("input type: " + type.toString(typeMap) + "\r\n");
                         AST.ISExp result = repl.eval(exp, ImmutableMap.copyOf(dynamicEnv));
                         ctx.write(result.toString() + ": " + result.getType() + "\r\n");
                     }

@@ -30,4 +30,6 @@
   }],
 
   "#range": ["#lambda", ["#f", "#g"], ["-", "#g", "#f"]]
+
+  //"#delay": ["#macro", <type?>, ["#v"], ["#list", ["#quote", "#lambda"], [], "#v"]]
 }

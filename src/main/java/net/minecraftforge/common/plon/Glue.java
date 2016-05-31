@@ -20,6 +20,7 @@ import net.minecraftforge.common.model.animation.AnimationStateMachineBase;
 import net.minecraftforge.common.model.animation.Clips;
 import net.minecraftforge.common.model.animation.IAnimationStateMachine;
 import net.minecraftforge.common.model.animation.IClip;
+import net.minecraftforge.common.util.DisjointSet;
 import org.apache.commons.lang3.tuple.Pair;
 
 /**
@@ -386,13 +387,15 @@ public enum Glue implements IResourceManagerReloadListener
             frameBuilder.put(makeSymbol("time"), makeFloat(0));
             ImmutableMap<ISExp, ISExp> checkFrame = frameBuilder.build();
             // type check that result of asm_def is a map
-            ISType sType = in.infer(source, checkFrame);
-            Interpreter.unify(sType, PrimTypes.Map.type);
+            DisjointSet<ISType> union = new DisjointSet<ISType>();
+            ISType sType = in.infer(source, checkFrame, union);
+            Interpreter.unify(sType, PrimTypes.Map.type, union);
             // and run it
             ISExp asmDef = in.eval(source, checkFrame);
             // type check that result of asm_run is a map
-            ISType runType = in.infer(new Cons(makeSymbol("asm_run"), new Cons(asmSource, new Cons(makeString(null), Nil.INSTANCE))), checkFrame);
-            Interpreter.unify(runType, PrimTypes.Map.type);
+            union = new DisjointSet<ISType>();
+            ISType runType = in.infer(new Cons(makeSymbol("asm_run"), new Cons(asmSource, new Cons(makeString(null), Nil.INSTANCE))), checkFrame, union);
+            Interpreter.unify(runType, PrimTypes.Map.type, union);
             // FIXME make exception strings less silly
             Map asm = (Map) asmDef;
             if(!asm.value.containsKey(statesKey))
