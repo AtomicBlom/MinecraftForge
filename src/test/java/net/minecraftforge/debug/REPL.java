@@ -110,10 +110,10 @@ public class REPL
                         {
                             exp = gson.fromJson(input, AST.ISExp.class);
                         }
-                        DisjointSet<AST.ISType> union = new DisjointSet<AST.ISType>();
-                        AST.ISType type = repl.infer(exp, ImmutableMap.copyOf(dynamicEnv), union);
-                        ImmutableMap<AST.ISType, AST.ISType> typeMap = AST.buildTypeMap(union);
-                        ctx.write("input type: " + type.toString(typeMap) + "\r\n");
+                        DisjointSet<AST.ISExp> union = new DisjointSet<AST.ISExp>();
+                        AST.ISExp type = repl.infer(exp, ImmutableMap.copyOf(dynamicEnv), union);
+                        ImmutableMap<AST.ISExp, AST.ISExp> typeMap = AST.buildTypeMap(union);
+                        ctx.write("input type: " + AST.typeToString(type, typeMap) + "\r\n");
                         AST.ISExp result = repl.eval(exp, ImmutableMap.copyOf(dynamicEnv));
                         ctx.write(result.toString() + ": " + result.getType() + "\r\n");
                     }

@@ -430,13 +430,13 @@ public abstract class Interpreter
     private static final class FreeVarProvider
     {
         private int nextVar = 0;
-        private TypeVar getFreshVar()
+        private ISExp getFreshVar()
         {
-            return new TypeVar("T" + nextVar++);
+            return makeSymbol("T" + nextVar++);
         }
     }
 
-    private ISType binfer(Cons args, ImmutableMap<? extends ISExp, ? extends ISType> context, FreeVarProvider vars, DisjointSet<ISType> union)
+    private ISExp binfer(Cons args, ImmutableMap<? extends ISExp, ? extends ISExp> context, FreeVarProvider vars, DisjointSet<ISExp> union)
     {
         if(args.cdr == Nil.INSTANCE)
         {
@@ -479,7 +479,7 @@ public abstract class Interpreter
         throw new IllegalArgumentException("bind enviroments have to be either direct maps or direct load expressions.");
     }
 
-    private ISType unlabelType(ISExp value, ImmutableMap<? extends ISExp, ? extends ISType> context, FreeVarProvider vars, DisjointSet<ISType> union)
+    private ISExp unlabelType(ISExp value, ImmutableMap<? extends ISExp, ? extends ISExp> context, FreeVarProvider vars, DisjointSet<ISExp> union)
     {
         if(value instanceof Cons && ((Cons) value).car.equals(labelSymbol))
         {
@@ -506,10 +506,10 @@ public abstract class Interpreter
         return value.getType();
     }
 
-    private ImmutableMap<ISExp, ISType> frameToContext(Map frame, ImmutableMap<? extends ISExp, ? extends ISType> context, FreeVarProvider vars, DisjointSet<ISType> union)
+    private ImmutableMap<ISExp, ISExp> frameToContext(Map frame, ImmutableMap<? extends ISExp, ? extends ISExp> context, FreeVarProvider vars, DisjointSet<ISExp> union)
     {
-        ImmutableMap<ISExp, ISType> newContext;
-        java.util.Map<ISExp, ISType> ctxBuilder = Maps.newHashMap();
+        ImmutableMap<ISExp, ISExp> newContext;
+        java.util.Map<ISExp, ISExp> ctxBuilder = Maps.newHashMap();
         ctxBuilder.putAll(context);
         for (java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : frame.value.entrySet())
         {
@@ -525,7 +525,7 @@ public abstract class Interpreter
         return newContext;
     }
 
-    private ImmutableMap<ISExp, ISType> envToContext(IList env, FreeVarProvider provider, DisjointSet<ISType> union)
+    private ImmutableMap<ISExp, ISExp> envToContext(IList env, FreeVarProvider provider, DisjointSet<ISExp> union)
     {
         if (env == Nil.INSTANCE)
         {
@@ -535,70 +535,74 @@ public abstract class Interpreter
         return frameToContext((Map) cons.car, envToContext(cons.cdr, provider, union), provider, union);
     }
 
-    public ISType infer(ISExp exp, ImmutableMap<? extends ISExp, ? extends ISExp> topEnv, DisjointSet<ISType> union)
+    public ISExp infer(ISExp exp, ImmutableMap<? extends ISExp, ? extends ISExp> topEnv, DisjointSet<ISExp> union)
     {
         FreeVarProvider provider = new FreeVarProvider();
         return infer(exp, envToContext(new Cons(new Map(topEnv), new Cons(readFrame, new Cons(new Map(PrimOp.values), Nil.INSTANCE))), provider, union), provider, union);
     }
 
-    public ISType infer(ISExp exp, DisjointSet<ISType> union)
+    public ISExp infer(ISExp exp, DisjointSet<ISExp> union)
     {
         FreeVarProvider provider = new FreeVarProvider();
         return infer(exp, envToContext(new Cons(readFrame, new Cons(new Map(PrimOp.values), Nil.INSTANCE)), provider, union), provider, union);
     }
 
-    private static ISType reify(ISType type, ImmutableSet<? extends ISType> vars, java.util.Map<TypeVar, TypeVar> newVars, FreeVarProvider varProvider, DisjointSet<ISType> union)
+    private static ISExp reify(ISExp type, ImmutableSet<? extends ISExp> vars, java.util.Map<ISExp, ISExp> newVars, FreeVarProvider varProvider, DisjointSet<ISExp> union)
     {
         type = find(type, union);
-        if(type instanceof TypeVar)
+        if(type instanceof Symbol)
         {
             if(!vars.contains(type))
             {
                 if(!newVars.containsKey(type))
                 {
-                    newVars.put((TypeVar) type, varProvider.getFreshVar());
+                    newVars.put(type, varProvider.getFreshVar());
                 }
                 return newVars.get(type);
             }
         }
-        if(type instanceof AbsType)
+        if(type instanceof IList)
         {
-            AbsType absType = (AbsType) type;
-            ImmutableList.Builder<ISType> args = ImmutableList.builder();
-            for(ISType arg : absType.args)
-            {
-                args.add(reify(arg, vars, newVars, varProvider, union));
-            }
-            return new AbsType(args.build(), reify(absType.ret, vars, newVars, varProvider, union));
+            return reilist((IList) type, vars, newVars, varProvider, union);
         }
         return type;
     }
 
-    private AbsType makeFunctionType(IList args, ISExp body, ImmutableMap<? extends ISExp, ? extends ISType> context, FreeVarProvider vars, DisjointSet<ISType> union)
+    private static IList reilist(IList args, ImmutableSet<? extends ISExp> vars, java.util.Map<ISExp, ISExp> newVars, FreeVarProvider varProvider, DisjointSet<ISExp> union)
     {
         if(args == Nil.INSTANCE)
         {
-            return new AbsType(ImmutableList.<ISType>of(), infer(body, context, vars, union));
+            return Nil.INSTANCE;
         }
-        java.util.Map<ISExp, ISType> newContext = Maps.newHashMap();
-        ImmutableList.Builder<ISType> argTypesBuilder = ImmutableList.builder();
+        Cons cons = (Cons) args;
+        return new Cons(reify(cons.car, vars, newVars, varProvider, union), reilist(cons.cdr, vars, newVars, varProvider, union));
+    }
+
+    private ISExp makeFunctionType(IList args, ISExp body, ImmutableMap<? extends ISExp, ? extends ISExp> context, FreeVarProvider vars, DisjointSet<ISExp> union)
+    {
+        if(args == Nil.INSTANCE)
+        {
+            return absType(ImmutableList.<ISExp>of(), infer(body, context, vars, union));
+        }
+        java.util.Map<ISExp, ISExp> newContext = Maps.newHashMap();
+        ImmutableList.Builder<ISExp> argTypesBuilder = ImmutableList.builder();
         newContext.putAll(context);
         while(args != Nil.INSTANCE)
         {
             Cons c4 = (Cons) args;
             Symbol arg = (Symbol) c4.car;
-            ISType argType = vars.getFreshVar();
+            ISExp argType = vars.getFreshVar();
             // new names shadow old names
             newContext.put(arg, argType);
             argTypesBuilder.add(argType);
             args = c4.cdr;
         }
-        ISType bodyType = infer(body, ImmutableMap.copyOf(newContext), vars, union);
-        return new AbsType(argTypesBuilder.build(), bodyType);
+        ISExp bodyType = infer(body, ImmutableMap.copyOf(newContext), vars, union);
+        return absType(argTypesBuilder.build(), bodyType);
     }
 
     @SuppressWarnings("StringEquality")
-    private ISType infer(ISExp exp, ImmutableMap<? extends ISExp, ? extends ISType> context, FreeVarProvider vars, DisjointSet<ISType> union)
+    private ISExp infer(ISExp exp, ImmutableMap<? extends ISExp, ? extends ISExp> context, FreeVarProvider vars, DisjointSet<ISExp> union)
     {
         if (exp instanceof Symbol)
         {
@@ -607,7 +611,7 @@ public abstract class Interpreter
                 // fixme?
                 throw new IllegalStateException("type lookup of unknown symbol " + exp);
             }
-            return reify(context.get(exp), ImmutableSet.copyOf(context.values()), Maps.<TypeVar, TypeVar>newHashMap(), vars, union);
+            return reify(context.get(exp), ImmutableSet.copyOf(context.values()), Maps.<ISExp, ISExp>newHashMap(), vars, union);
         }
         else if (exp instanceof ArithmSymbol)
         {
@@ -690,7 +694,7 @@ public abstract class Interpreter
                         throw new IllegalArgumentException("delay needs 1 argument, got: " + exp);
                     }
                     Cons cdr = (Cons) cons.cdr;
-                    return new AbsType(ImmutableList.<ISType>of(), infer(cdr.car, context, vars, union));
+                    return absType(ImmutableList.<ISExp>of(), infer(cdr.car, context, vars, union));
                 }
                 else if (name == "delay_values")
                 {
@@ -706,68 +710,72 @@ public abstract class Interpreter
                     Cons c2 = (AST.Cons) c1.cdr;
                     Cons c3 = (AST.Cons) c2.cdr;
 
-                    ISType f = infer(c1.car, context, vars, union);
-                    ISType z = infer(c2.car, context, vars, union);
-                    ISType list = infer(c3.car, context, vars, union);
+                    ISExp f = infer(c1.car, context, vars, union);
+                    ISExp z = infer(c2.car, context, vars, union);
+                    ISExp list = infer(c3.car, context, vars, union);
                     // ((A, B) -> B, A, list[A]) -> B
-                    ISType A = vars.getFreshVar(), B = vars.getFreshVar();
-                    ISType fType = new AbsType(ImmutableList.of(A, B), B);
+                    ISExp A = vars.getFreshVar(), B = vars.getFreshVar();
+                    ISExp fType = absType(ImmutableList.of(A, B), B);
                     unify(f, fType, union);
                     unify(z, B, union);
                     unify(list, PrimTypes.List.type, union);
                     return B;
                 }
             }
-            ISType funcType = infer(cons.car, context, vars, union);
+            ISExp funcType = infer(cons.car, context, vars, union);
             IList args = cons.cdr;
-            ImmutableList.Builder<ISType> argTypesBuilder = ImmutableList.builder();
+            ImmutableList.Builder<ISExp> argTypesBuilder = ImmutableList.builder();
             while(args != Nil.INSTANCE)
             {
                 Cons c2 = (Cons) args;
                 argTypesBuilder.add(infer(c2.car, context, vars, union));
                 args = c2.cdr;
             }
-            ISType bodyType = vars.getFreshVar();
-            unify(funcType, new AbsType(argTypesBuilder.build(), bodyType), union);
+            ISExp bodyType = vars.getFreshVar();
+            unify(funcType, absType(argTypesBuilder.build(), bodyType), union);
             return bodyType;
         }
         return exp.getType();
     }
 
-    static void unify(ISType first, ISType second, DisjointSet<ISType> union)
+    static void unify(ISExp first, ISExp second, DisjointSet<ISExp> union)
     {
-        ISType firstLink = find(first, union);
-        ISType secondLink = find(second, union);
-        if(firstLink instanceof TypeVar)
+        ISExp firstLink = find(first, union);
+        ISExp secondLink = find(second, union);
+        if(firstLink instanceof Symbol)
         {
-            ((TypeVar) firstLink).union(second, union);
+            union((Symbol) firstLink, second, union);
             return;
         }
-        else if(secondLink instanceof TypeVar)
+        else if(secondLink instanceof Symbol)
         {
-            ((TypeVar) secondLink).union(first, union);
+            union((Symbol) secondLink, first, union);
             return;
         }
-        else if(firstLink instanceof AbsType && secondLink == PrimTypes.Map.type)
+        else if(firstLink instanceof Cons && secondLink == PrimTypes.Map.type)
         {
-            AbsType type = (AbsType) firstLink;
-            if(type.args.size() == 1)
+            Cons type = (Cons) firstLink;
+            if(length(type) == 2)
             {
-                unify(type.args.get(0), PrimTypes.String.type, union);
+                unify(type.car, PrimTypes.String.type, union);
                 return;
             }
         }
-        else if(firstLink instanceof AbsType && secondLink instanceof AbsType)
+        else if(firstLink instanceof IList && secondLink instanceof IList)
         {
-            AbsType firstAbs = (AbsType) firstLink;
-            AbsType secondAbs = (AbsType) secondLink;
-            unify(firstAbs.ret, secondAbs.ret, union);
-            if(firstAbs.args.size() == secondAbs.args.size())
+            IList firstAbs = (IList) firstLink;
+            IList secondAbs = (IList) secondLink;
+            while(firstAbs != Nil.INSTANCE && secondAbs != Nil.INSTANCE)
             {
-                for(int i = 0; i < firstAbs.args.size(); i++)
-                {
-                    unify(firstAbs.args.get(i), secondAbs.args.get(i), union);
-                }
+                @SuppressWarnings("ConstantConditions")
+                Cons c1 = (Cons) firstAbs;
+                Cons c2 = (Cons) secondAbs;
+                unify(c1.car, c2.car, union);
+                firstAbs = c1.cdr;
+                secondAbs = c2.cdr;
+            }
+            if(firstAbs == secondAbs) // == Nil.INSTANCE
+            {
                 return;
             }
         }
@@ -775,6 +783,7 @@ public abstract class Interpreter
         {
             return;
         }
-        throw new IllegalStateException("Type error: can't unify " + firstLink + " and " + secondLink);
+        ImmutableMap<ISExp, ISExp> typeMap = buildTypeMap(union);
+        throw new IllegalStateException("Type error: can't unify " + typeToString(firstLink, typeMap) + " and " + typeToString(secondLink, typeMap));
     }
 }

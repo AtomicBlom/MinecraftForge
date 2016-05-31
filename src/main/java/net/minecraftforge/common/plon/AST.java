@@ -32,7 +32,7 @@ public enum AST
     // public
     public static interface ISExp
     {
-        ISType getType();
+        ISExp getType();
     }
 
     public static ISExp makeSymbol(String name)
@@ -107,7 +107,7 @@ public enum AST
         }
 
         @Override
-        public ISType getType()
+        public ISExp getType()
         {
             return PrimTypes.Float.type;
         }
@@ -150,7 +150,7 @@ public enum AST
         }
 
         @Override
-        public ISType getType()
+        public ISExp getType()
         {
             return PrimTypes.String.type;
         }
@@ -194,7 +194,7 @@ public enum AST
         }
 
         @Override
-        public ISType getType()
+        public ISExp getType()
         {
             return PrimTypes.Symbol.type;
         }
@@ -237,7 +237,7 @@ public enum AST
         }
 
         @Override
-        public ISType getType()
+        public ISExp getType()
         {
             return PrimTypes.Symbol.type;
         }
@@ -245,13 +245,13 @@ public enum AST
 
     static class ArithmOp implements ICallableExp
     {
-        static AbsType makeArithmType(ArithmSymbol ops)
+        static ISExp makeArithmType(ArithmSymbol ops)
         {
-            return new AbsType(ImmutableList.copyOf(Collections.nCopies(ops.ops.length() + 1, PrimTypes.Float.type)), PrimTypes.Float.type);
+            return absType(ImmutableList.copyOf(Collections.nCopies(ops.ops.length() + 1, PrimTypes.Float.type)), PrimTypes.Float.type);
         }
 
         private final String ops;
-        private final AbsType type;
+        private final ISExp type;
 
         ArithmOp(ArithmSymbol ops)
         {
@@ -320,7 +320,7 @@ public enum AST
         }
 
         @Override
-        public ISType getType()
+        public ISExp getType()
         {
             return type;
         }
@@ -345,7 +345,7 @@ public enum AST
     static abstract class Load implements ICallableExp
     {
         @Override
-        public ISType getType()
+        public ISExp getType()
         {
             return PrimTypes.Invalid.type;
         }
@@ -411,7 +411,7 @@ public enum AST
                 return new FloatAtom(length(cons.car));
             }
         },
-        Cons("cons", ImmutableList.<ISType>of(new TypeVar("T"),  PrimTypes.List.type), PrimTypes.List.type)
+        Cons("cons", ImmutableList.<ISExp>of(new Symbol("T"),  PrimTypes.List.type), PrimTypes.List.type)
         {
             @Override
             public ISExp apply(IList args)
@@ -446,7 +446,7 @@ public enum AST
                 throw new IllegalArgumentException("Car called not on a list");
             }
         },
-        Cdr("cdr", ImmutableList.<ISType>of(PrimTypes.List.type), PrimTypes.List.type)
+        Cdr("cdr", ImmutableList.<ISExp>of(PrimTypes.List.type), PrimTypes.List.type)
         {
             @Override
             public ISExp apply(IList args)
@@ -479,7 +479,7 @@ public enum AST
                 return new Map(args);
             }
         },
-        Conm("conm", ImmutableList.<ISType>of(new TypeVar("K"), new TypeVar("V"), PrimTypes.Map.type), PrimTypes.Map.type)
+        Conm("conm", ImmutableList.<ISExp>of(new Symbol("K"), new Symbol("V"), PrimTypes.Map.type), PrimTypes.Map.type)
         {
             @Override
             public ISExp apply(IList args)
@@ -507,7 +507,7 @@ public enum AST
                 return new Map(ImmutableMap.copyOf(newMap));
             }
         },
-        Carm("carm", ImmutableList.<ISType>of(PrimTypes.Map.type), PrimTypes.List.type)
+        Carm("carm", ImmutableList.<ISExp>of(PrimTypes.Map.type), PrimTypes.List.type)
         {
             @Override
             public ISExp apply(IList args)
@@ -526,7 +526,7 @@ public enum AST
                 return new Cons(entry.getKey(), new Cons(entry.getValue(), Nil.INSTANCE));
             }
         },
-        Cdrm("cdrm", ImmutableList.<ISType>of(PrimTypes.Map.type), PrimTypes.Map.type)
+        Cdrm("cdrm", ImmutableList.<ISExp>of(PrimTypes.Map.type), PrimTypes.Map.type)
         {
             @Override
             public ISExp apply(IList args)
@@ -558,7 +558,7 @@ public enum AST
             }
         },
         // TODO: should be a library function eventually
-        Keys("keys", ImmutableList.<ISType>of(PrimTypes.Map.type), PrimTypes.List.type)
+        Keys("keys", ImmutableList.<ISExp>of(PrimTypes.Map.type), PrimTypes.List.type)
         {
             @Override
             public ISExp apply(IList args)
@@ -595,7 +595,7 @@ public enum AST
         }
 
         private final Symbol name;
-        private final ISType type;
+        private final ISExp type;
 
         private PrimOp(String name)
         {
@@ -603,14 +603,14 @@ public enum AST
             this.type = PrimTypes.Invalid.type;
         }
 
-        private PrimOp(String name, ImmutableList<? extends ISType> args, ISType ret)
+        private PrimOp(String name, ImmutableList<? extends ISExp> args, ISExp ret)
         {
             this.name = new Symbol(name);
-            this.type = new AbsType(args, ret);
+            this.type = absType(args, ret);
         }
 
         @Override
-        public ISType getType()
+        public ISExp getType()
         {
             return type;
         }
@@ -635,7 +635,7 @@ public enum AST
         }
 
         @Override
-        public ISType getType()
+        public ISExp getType()
         {
             return PrimTypes.List.type;
         }
@@ -684,7 +684,7 @@ public enum AST
         }
 
         @Override
-        public ISType getType()
+        public ISExp getType()
         {
             return PrimTypes.List.type;
         }
@@ -703,7 +703,7 @@ public enum AST
         }
 
         @Override
-        public ISType getType()
+        public ISExp getType()
         {
             return PrimTypes.Map.type;
         }
@@ -773,23 +773,23 @@ public enum AST
         }
 
         @Override
-        public ISType getType()
+        public ISExp getType()
         {
             return PrimTypes.Map.type;
         }
     }
 
-    public static ImmutableMap<ISType, ISType> buildTypeMap(DisjointSet<ISType> union)
+    public static ImmutableMap<ISExp, ISExp> buildTypeMap(DisjointSet<ISExp> union)
     {
-        ImmutableMap<ISType, ImmutableSet<ISType>> map = union.toMap();
-        ImmutableMap.Builder<ISType, ISType> builder = ImmutableMap.builder();
-        for (ISType from : map.keySet())
+        ImmutableMap<ISExp, ImmutableSet<ISExp>> map = union.toMap();
+        ImmutableMap.Builder<ISExp, ISExp> builder = ImmutableMap.builder();
+        for (ISExp from : map.keySet())
         {
-            ISType to = null;
+            ISExp to = null;
             // can be faster since values have a lot of repeats
-            for(ISType candidate : map.get(from))
+            for(ISExp candidate : map.get(from))
             {
-                if(!(candidate instanceof TypeVar))
+                if(!(candidate instanceof Symbol))
                 {
                     to = candidate;
                     break;
@@ -803,47 +803,6 @@ public enum AST
         return builder.build();
     }
 
-    public static interface ISType {
-        String toString(ImmutableMap<? extends ISType, ? extends ISType> union);
-    }
-
-    private static final class PrimType implements ISType
-    {
-        private final String type;
-
-        private PrimType(String type)
-        {
-            this.type = type;
-        }
-
-        @Override
-        public boolean equals(Object o)
-        {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
-            PrimType primType = (PrimType) o;
-            return Objects.equal(type, primType.type);
-        }
-
-        @Override
-        public int hashCode()
-        {
-            return Objects.hashCode(type);
-        }
-
-        @Override
-        public String toString(ImmutableMap<? extends ISType, ? extends ISType> union)
-        {
-            return type;
-        }
-
-        @Override
-        public String toString()
-        {
-            return type;
-        }
-    }
-
     static enum PrimTypes
     {
         Float("float"),
@@ -853,165 +812,118 @@ public enum AST
         Map("map"),
         Invalid("invalid");
 
-        final PrimType type;
+        final StringAtom type;
 
         PrimTypes(String type)
         {
-            this.type = new PrimType(type);
+            this.type = new StringAtom(type);
         }
     }
 
-    static final class AbsType implements ISType
+    static ISExp absType(ImmutableList<? extends ISExp> args, ISExp ret)
     {
-        final ImmutableList<? extends ISType> args;
-        final ISType ret;
-
-        AbsType(ImmutableList<? extends ISType> args, ISType ret) {
-            this.args = args;
-            this.ret = ret;
-        }
-
-        @Override
-        public boolean equals(Object o)
+        Cons type = new Cons(ret, Nil.INSTANCE);
+        for (ISExp arg : args.reverse())
         {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
-            AbsType absType = (AbsType) o;
-            return Objects.equal(args, absType.args) &&
-            Objects.equal(ret, absType.ret);
+            type = new Cons(arg, type);
         }
-
-        @Override
-        public int hashCode()
-        {
-            return Objects.hashCode(args, ret);
-        }
-
-        @Override
-        public String toString()
-        {
-            return toString(ImmutableMap.<ISType, ISType>of());
-        }
-
-        @Override
-        public String toString(ImmutableMap<? extends ISType, ? extends ISType> union)
-        {
-            String r;
-            if(args.size() == 1)
-            {
-                r = args.get(0).toString(union) + " -> ";
-            }
-            else
-            {
-                r = "(";
-                for(int i = 0; i < args.size(); i++)
-                {
-                    r += args.get(i).toString(union);
-                    if (i < args.size() - 1)
-                    {
-                        r += ", ";
-                    }
-                }
-                r += ") -> ";
-            }
-            if(ret instanceof AbsType)
-            {
-                return r + "(" + ret.toString(union) + ")";
-            }
-            return r + ret.toString(union);
-        }
+        return type;
     }
 
-    static ISType find(ISType type, DisjointSet<ISType> union)
+    static ISExp find(ISExp type, DisjointSet<ISExp> union)
     {
-        if(type instanceof TypeVar)
+        if(type instanceof Symbol)
         {
-            TypeVar var = (TypeVar) type;
+            Symbol var = (Symbol) type;
             union.find(var).or(var);
         }
         return type;
     }
 
-    static final class TypeVar implements ISType
+    private static boolean occurs(Symbol type, ISExp other, DisjointSet<ISExp> union)
     {
-        private final String name;
-
-        TypeVar(String name)
+        ISExp link = find(other, union);
+        if(other instanceof Symbol)
         {
-            this.name = name;
+            // FIXME: ==?
+            return type.equals(other);
         }
-
-        @Override
-        public boolean equals(Object o)
+        else if(other instanceof IList)
         {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
-            TypeVar typeVar = (TypeVar) o;
-            return Objects.equal(name, typeVar.name);
-        }
-
-        @Override
-        public int hashCode()
-        {
-            return Objects.hashCode(name);
-        }
-
-        @Override
-        public String toString()
-        {
-            return name;
-        }
-
-        @Override
-        public String toString(ImmutableMap<? extends ISType, ? extends ISType> union)
-        {
-            if(union.containsKey(this))
+            IList list = (IList) other;
+            while(list != Nil.INSTANCE)
             {
-                ISType type = union.get(this);
-                if(this != type)
+                Cons cons = (Cons) list;
+                if(occurs(type, cons.car, union))
                 {
-                    return union.get(this).toString(union);
+                    return true;
+                }
+                list = cons.cdr;
+            }
+        }
+        return false;
+    }
+
+    static void union(Symbol type, ISExp other, DisjointSet<ISExp> union)
+    {
+        if(!type.equals(other))
+        {
+            if(occurs(type, other, union))
+            {
+                throw new IllegalStateException("recursive type: " + type + " = " + other);
+            }
+            // TODO: move makeSet to context?
+            union.makeSet(type);
+            union.makeSet(other);
+            union.union(type, other);
+        }
+    }
+
+    public static String typeToString(ISExp type, ImmutableMap<? extends ISExp, ? extends ISExp> union)
+    {
+        if(type instanceof StringAtom)
+        {
+            return ((StringAtom) type).value;
+        }
+        else if(type instanceof Symbol)
+        {
+            if(union.containsKey(type))
+            {
+                ISExp target = union.get(type);
+                if(type != target)
+                {
+                    return typeToString(target, union);
                 }
             }
-            return name;
+            return ((Symbol) type).value;
         }
-
-        private boolean occurs(ISType type, DisjointSet<ISType> union)
+        Cons cons = (Cons)type;
+        String r;
+        if(length(type) == 2)
         {
-            ISType link = find(type, union);
-            if(type instanceof TypeVar)
-            {
-                return this == link;
-            }
-            else if(type instanceof AbsType)
-            {
-                AbsType absType = (AbsType) type;
-                for(ISType arg : absType.args)
-                {
-                    if(occurs(arg, union))
-                    {
-                        return true;
-                    }
-                }
-                return occurs(absType.ret, union);
-            }
-            return false;
+            r = typeToString(cons.car, union) + " -> ";
+            cons = (Cons) cons.cdr;
         }
-
-        void union(ISType type, DisjointSet<ISType> union)
+        else
         {
-            if(this != type)
+            r = "(";
+            while(cons.cdr != Nil.INSTANCE)
             {
-                if(occurs(type, union))
+                r += typeToString(cons.car, union);
+                cons = (Cons) cons.cdr;
+                if(cons.cdr != Nil.INSTANCE)
                 {
-                    throw new IllegalStateException("recursive type: " + this + " = " + type);
+                    r += ", ";
                 }
-                // TODO: move makeSet to context?
-                union.makeSet(this);
-                union.makeSet(type);
-                union.union(this, type);
             }
+            r += ") -> ";
         }
+        if(cons.car instanceof IList)
+        {
+            r += "(" + typeToString(cons.car, union) + ")";
+        }
+        r += typeToString(cons.car, union);
+        return r;
     }
 
     public static enum SExpTypeAdapterFactory implements TypeAdapterFactory

@@ -62,7 +62,7 @@ public enum Glue implements IResourceManagerReloadListener
         return new ICallableExp()
         {
             @Override
-            public ISType getType()
+            public ISExp getType()
             {
                 return User.asbType;
             }
@@ -117,8 +117,8 @@ public enum Glue implements IResourceManagerReloadListener
 
     private static class User implements ICallableExp
     {
-        private static final AbsType type = new AbsType(ImmutableList.<ISType>of(PrimTypes.Float.type), PrimTypes.Float.type);
-        private static final AbsType asbType = new AbsType(ImmutableList.<ISType>of(PrimTypes.String.type), type);
+        private static final ISExp type = absType(ImmutableList.of(PrimTypes.Float.type), PrimTypes.Float.type);
+        private static final ISExp asbType = absType(ImmutableList.of(PrimTypes.String.type), type);
         private final String name;
         private final ITimeValue parameter;
 
@@ -164,7 +164,7 @@ public enum Glue implements IResourceManagerReloadListener
         }
 
         @Override
-        public ISType getType()
+        public ISExp getType()
         {
             return type;
         }
@@ -387,14 +387,14 @@ public enum Glue implements IResourceManagerReloadListener
             frameBuilder.put(makeSymbol("time"), makeFloat(0));
             ImmutableMap<ISExp, ISExp> checkFrame = frameBuilder.build();
             // type check that result of asm_def is a map
-            DisjointSet<ISType> union = new DisjointSet<ISType>();
-            ISType sType = in.infer(source, checkFrame, union);
+            DisjointSet<ISExp> union = new DisjointSet<ISExp>();
+            ISExp sType = in.infer(source, checkFrame, union);
             Interpreter.unify(sType, PrimTypes.Map.type, union);
             // and run it
             ISExp asmDef = in.eval(source, checkFrame);
             // type check that result of asm_run is a map
-            union = new DisjointSet<ISType>();
-            ISType runType = in.infer(new Cons(makeSymbol("asm_run"), new Cons(asmSource, new Cons(makeString(null), Nil.INSTANCE))), checkFrame, union);
+            union = new DisjointSet<ISExp>();
+            ISExp runType = in.infer(new Cons(makeSymbol("asm_run"), new Cons(asmSource, new Cons(makeString(null), Nil.INSTANCE))), checkFrame, union);
             Interpreter.unify(runType, PrimTypes.Map.type, union);
             // FIXME make exception strings less silly
             Map asm = (Map) asmDef;
