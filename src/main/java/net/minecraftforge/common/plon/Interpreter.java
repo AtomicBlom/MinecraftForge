@@ -449,7 +449,7 @@ public abstract class Interpreter
         if(value instanceof Cons && ((Cons) value).car.equals(labelSymbol))
         {
             // FIXME
-            /*if(length(value) == 3)
+            if(length(value) == 3)
             {
                 Cons c2 = (Cons) ((Cons) value).cdr;
                 Cons c3 = (Cons) c2.cdr;
@@ -458,10 +458,10 @@ public abstract class Interpreter
                 // function label
                 if(args instanceof IList)
                 {
-                    return makeFunction((IList) args, body, env);
+                    return makeFunctionType((IList) args, body, context, vars);
                 }
             }
-            else*/ if (length(value) == 2)
+            else if (length(value) == 2)
             {
                 Cons c2 = (Cons) ((Cons) value).cdr;
                 // reference label
@@ -539,6 +539,29 @@ public abstract class Interpreter
         return type;
     }
 
+    private AbsType makeFunctionType(IList args, ISExp body, ImmutableMap<? extends ISExp, ? extends ISType> context, FreeVarProvider vars)
+    {
+        if(args == Nil.INSTANCE)
+        {
+            return new AbsType(ImmutableList.<ISType>of(), infer(context, vars, body));
+        }
+        java.util.Map<ISExp, ISType> newContext = Maps.newHashMap();
+        ImmutableList.Builder<ISType> argTypesBuilder = ImmutableList.builder();
+        newContext.putAll(context);
+        while(args != Nil.INSTANCE)
+        {
+            Cons c4 = (Cons) args;
+            Symbol arg = (Symbol) c4.car;
+            ISType argType = vars.getFreshVar();
+            // new names shadow old names
+            newContext.put(arg, argType);
+            argTypesBuilder.add(argType);
+            args = c4.cdr;
+        }
+        ISType bodyType = infer(ImmutableMap.copyOf(newContext), vars, body);
+        return new AbsType(argTypesBuilder.build(), bodyType);
+    }
+
     @SuppressWarnings("StringEquality")
     private ISType infer(ImmutableMap<? extends ISExp, ? extends ISType> context, FreeVarProvider vars, ISExp exp)
     {
@@ -584,25 +607,7 @@ public abstract class Interpreter
                     }
                     IList args = (IList) c2.car;
                     ISExp body = c3.car;
-                    if(args == Nil.INSTANCE)
-                    {
-                        return new AbsType(ImmutableList.<ISType>of(), infer(context, vars, body));
-                    }
-                    java.util.Map<ISExp, ISType> newContext = Maps.newHashMap();
-                    ImmutableList.Builder<ISType> argTypesBuilder = ImmutableList.builder();
-                    newContext.putAll(context);
-                    while(args != Nil.INSTANCE)
-                    {
-                        Cons c4 = (Cons) args;
-                        Symbol arg = (Symbol) c4.car;
-                        ISType argType = vars.getFreshVar();
-                        // new names shadow old names
-                        newContext.put(arg, argType);
-                        argTypesBuilder.add(argType);
-                        args = c4.cdr;
-                    }
-                    ISType bodyType = infer(ImmutableMap.copyOf(newContext), vars, body);
-                    return new AbsType(argTypesBuilder.build(), bodyType);
+                    return makeFunctionType(args, body, context, vars);
                 }
                 else if (name == "bind")
                 {
