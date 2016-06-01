@@ -558,30 +558,6 @@ public enum AST
                 }
                 return new Map(map);
             }
-        },
-        // TODO: should be a library function eventually
-        Keys("keys", ImmutableList.<ISExp>of(PrimTypes.Map.type), PrimTypes.List.type)
-        {
-            @Override
-            public ISExp apply(IList args)
-            {
-                if (length(args) != 1)
-                {
-                    throw new IllegalArgumentException("keys needs 1 argument, got: " + args);
-                }
-                Cons c1 = (Cons) args;
-                if (!(c1.car instanceof Map))
-                {
-                    throw new IllegalArgumentException("keys needs a non-empty map as an argument");
-                }
-                Map map = (Map) c1.car;
-                IList keys = Nil.INSTANCE;
-                for(ISExp key : map.value.keySet())
-                {
-                    keys = new Cons(key, keys);
-                }
-                return keys;
-            }
         };
 
         static final ImmutableMap<Symbol, PrimOp> values;

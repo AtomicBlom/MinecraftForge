@@ -39,6 +39,7 @@ public class REPL
     {
         final Map<AST.ISExp, AST.ISExp> dynamicEnv = Maps.newHashMap();
         final Map<String, ITimeValue> parameters = Maps.newHashMap();
+        dynamicEnv.putAll(Glue.getRootLibrary());
         //dynamicEnv.put(AST.makeSymbol("load"), Glue.getLoadOp());
         //dynamicEnv.put(AST.makeSymbol("model_clip_flat"), Glue.getModelClip());
         //dynamicEnv.put(AST.makeSymbol("trigger_positive"), Glue.getTriggerPositive());
@@ -54,8 +55,6 @@ public class REPL
                 return Optional.absent();
             }
         }));
-
-        final Interpreter repl = Glue.getInterpreter();
 
         final Gson gson = new GsonBuilder().registerTypeAdapterFactory(AST.SExpTypeAdapterFactory.INSTANCE).create();
 
@@ -111,10 +110,11 @@ public class REPL
                             exp = gson.fromJson(input, AST.ISExp.class);
                         }
                         Unifier unifier = new Unifier();
-                        AST.ISExp type = repl.infer(exp, ImmutableMap.copyOf(dynamicEnv), unifier);
+                        Interpreter repl = new Glue.GlueInterpreter(ImmutableMap.copyOf(dynamicEnv));
+                        AST.ISExp type = repl.infer(exp, unifier);
                         ImmutableMap<AST.ISExp, AST.ISExp> typeMap = unifier.buildTypeMap();
                         ctx.write("input type: " + Unifier.typeToString(type, typeMap) + "\r\n");
-                        AST.ISExp result = repl.eval(exp, ImmutableMap.copyOf(dynamicEnv));
+                        AST.ISExp result = repl.eval(exp);
                         ctx.write(result.toString() + ": " + result.getType() + "\r\n");
                     }
                 }

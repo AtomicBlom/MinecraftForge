@@ -29,7 +29,14 @@
     " start_state": ["#asm", " start_state"]
   }],
 
-  "#range": ["#lambda", ["#f", "#g"], ["-", "#g", "#f"]]
+  "#range": ["#lambda", ["#f", "#g"], ["-", "#g", "#f"]],
 
-  //"#delay": ["#macro", <type?>, ["#v"], ["#list", ["#quote", "#lambda"], [], "#v"]]
+  // A -> (() -> A)
+  "#delay": ["#macro", ["#A", ["#A"]], ["#v"], ["#list", ["#quote", "#lambda"], [], "#v"]],
+
+  // map -> (() -> map)
+  "#delay_values": ["#macro", [" map", [" map"]], ["#m"], ["#list", ["#quote", "#mfold"], ["#quote", ["#lambda", ["#r", "#k", "#v"], ["#conm", "#k", ["#delay", "#v"], "#r"]]], {}, "#m"]],
+
+  "#keys":   ["#lambda", ["#m"], ["#mfold", ["#lambda", ["#r", "#k", "#v"], ["#cons", "#k", "#r"]], [], "#m"]],
+  "#values": ["#lambda", ["#m"], ["#mfold", ["#lambda", ["#r", "#k", "#v"], ["#cons", "#v", "#r"]], [], "#m"]]
 }

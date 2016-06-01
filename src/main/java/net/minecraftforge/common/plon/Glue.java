@@ -36,6 +36,15 @@ public enum Glue implements IResourceManagerReloadListener
 {
     INSTANCE;
 
+    public static ImmutableMap<? extends ISExp, ? extends ISExp> getRootLibrary()
+    {
+        if(rootLibrary == null)
+        {
+            loadRootLibrary();
+        }
+        return rootLibrary.value;
+    }
+
     /*public static ISExp getLoadOp()
     {
         return GlueOp.Load;
@@ -50,11 +59,6 @@ public enum Glue implements IResourceManagerReloadListener
     {
         return GlueOp.TriggerPositive;
     }*/
-
-    public static Interpreter getInterpreter()
-    {
-        return in;
-    }
 
     public static ISExp getUserOp(final Function<? super String, Optional<? extends ITimeValue>> userParameters)
     {
@@ -98,8 +102,15 @@ public enum Glue implements IResourceManagerReloadListener
     private static IResourceManager manager;
     private static final ResourceLocation rootLibraryLocation = new ResourceLocation("forge", "root_library_unstable");
     private static Map rootLibrary;
-    private static final Interpreter in = new Interpreter()
+    public static class GlueInterpreter extends Interpreter
     {
+        public GlueInterpreter(ImmutableMap<? extends ISExp, ? extends ISExp> topEnv)
+        {
+            super(topEnv);
+        }
+
+        public GlueInterpreter() {}
+
         @Override
         protected ISExp read(String location)
         {
@@ -112,7 +123,7 @@ public enum Glue implements IResourceManagerReloadListener
                 throw new IllegalArgumentException("Couldn't load " + location, e);
             }
         }
-    };
+    }
 
     private static class User implements ICallableExp
     {
@@ -387,13 +398,14 @@ public enum Glue implements IResourceManagerReloadListener
             ImmutableMap<ISExp, ISExp> checkFrame = frameBuilder.build();
             // type check that result of asm_def is a map
             Unifier unifier = new Unifier();
-            ISExp sType = in.infer(source, checkFrame, unifier);
+            Interpreter in = new GlueInterpreter(checkFrame);
+            ISExp sType = in.infer(source, unifier);
             unifier.unify(sType, PrimTypes.Map.type);
             // and run it
-            ISExp asmDef = in.eval(source, checkFrame);
+            ISExp asmDef = in.eval(source);
             unifier = new Unifier();
             // type check that result of asm_run is a map
-            ISExp runType = in.infer(new Cons(makeSymbol("asm_run"), new Cons(asmSource, new Cons(makeString(null), Nil.INSTANCE))), checkFrame, unifier);
+            ISExp runType = in.infer(new Cons(makeSymbol("asm_run"), new Cons(asmSource, new Cons(makeString(null), Nil.INSTANCE))), unifier);
             unifier.unify(runType, PrimTypes.Map.type);
             // FIXME make exception strings less silly
             Map asm = (Map) asmDef;
@@ -487,7 +499,8 @@ public enum Glue implements IResourceManagerReloadListener
             ImmutableMap.Builder<ISExp, ISExp> builder = ImmutableMap.builder();
             builder.putAll(rootFrame);
             builder.put(makeSymbol("time"), makeFloat(time));
-            return in.eval(new Cons(makeSymbol("asm_run"), new Cons(asmSource, new Cons(makeString(state), Nil.INSTANCE))), builder.build());
+            Interpreter in = new GlueInterpreter(builder.build());
+            return in.eval(new Cons(makeSymbol("asm_run"), new Cons(asmSource, new Cons(makeString(state), Nil.INSTANCE))));
         }
 
         @Override
