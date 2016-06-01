@@ -1,5 +1,6 @@
 package net.minecraftforge.common.plon;
 
+import com.google.common.base.Function;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -10,7 +11,7 @@ import static net.minecraftforge.common.plon.AST.*;
 /**
  * Created by rainwarrior on 5/18/16.
  */
-public abstract class Interpreter
+public abstract class Interpreter<State, Result>
 {
     // common static stuff
 
@@ -19,58 +20,59 @@ public abstract class Interpreter
     private static final ISExp macroSymbol = makeSymbol("&macro");
     static final ISExp mapSymbol = makeSymbol("&map");
 
-    private static ISExp makeFunction(IList args, ISExp body, IList env)
-    {
-        return new Cons(functionSymbol, new Cons(args, new Cons(body, new Cons(env, Nil.INSTANCE))));
-    }
-
     // common stuff
 
     // TODO in dis
-    private Unifier unifier;
-    private final IList topEnv;
+    protected final Function<String, ISExp> reader;
+    private final Evaluator macroEvaluator;
+    protected final IList topEnv;
 
-    public Interpreter(ImmutableMap<? extends ISExp, ? extends ISExp> topEnv)
+    protected Evaluator getMacroEvaluator()
     {
-        this.topEnv = new Cons(new Map(topEnv), new Cons(readFrame, new Cons(new Map(PrimOp.values), Nil.INSTANCE)));
+        return macroEvaluator;
     }
 
-    public Interpreter()
+    private Interpreter(Function<String, ISExp> reader, IList topEnv, Evaluator macroEvaluator)
     {
-        this.topEnv = new Cons(readFrame, new Cons(new Map(PrimOp.values), Nil.INSTANCE));
+        this.reader = reader;
+        this.topEnv = topEnv;
+        this.macroEvaluator = macroEvaluator;
     }
 
-    private final Map readFrame = new Map(ImmutableMap.of(makeSymbol("load"), new Load()
+    private Interpreter(Function<String, ISExp> reader, IList topEnv)
     {
-        @Override
-        protected ISExp read(String location)
+        this.reader = reader;
+        this.topEnv = topEnv;
+        this.macroEvaluator = new Evaluator(reader, topEnv, null)
         {
-            return Interpreter.this.read(location);
-        }
-    }));
-
-    protected abstract ISExp read(String location);
-
-    public ISExp eval(ISExp exp)
-    {
-        this.unifier = null;
-        return eval(exp, topEnv);
+            @Override
+            protected Evaluator getMacroEvaluator()
+            {
+                return this;
+            }
+        };
     }
 
-    public ISExp infer(ISExp exp, Unifier unifier)
+    public Interpreter(Function<String, ISExp> reader)
     {
-        this.unifier = unifier;
-        return infer(exp, envToContext(topEnv, ImmutableSet.<ISExp>of()), ImmutableSet.<ISExp>of());
+        this(reader, lift(makeReadFrame(reader), new Map(PrimOp.values)));
     }
 
-    private IList evlis(IList list, IList env)
+    public Interpreter(Function<String, ISExp> reader, ImmutableMap<? extends ISExp, ? extends ISExp> topEnv)
     {
-        if (list == Nil.INSTANCE)
+        this(reader, lift(new Map(topEnv), makeReadFrame(reader), new Map(PrimOp.values)));
+    }
+
+    private static Map makeReadFrame(final Function<String, ISExp> reader)
+    {
+        return new Map(ImmutableMap.of(makeSymbol("load"), new Load()
         {
-            return Nil.INSTANCE;
-        }
-        Cons cons = (Cons) list;
-        return new Cons(eval(cons.car, env), evlis(cons.cdr, env));
+            @Override
+            protected ISExp read(String location)
+            {
+                return reader.apply(location);
+            }
+        }));
     }
 
     private static IList reilist(IList args, java.util.Map<ISExp, ISExp> newVars, ImmutableSet<ISExp> boundVarTypes, Unifier unifier)
@@ -131,64 +133,12 @@ public abstract class Interpreter
         throw new IllegalArgumentException("can't label: " + key);
     }
 
-    private ISExp unlabel(ISExp value, IList env)
+    private static ISExp makeFunction(IList args, ISExp body, IList env)
     {
-        if(value instanceof Cons && ((Cons) value).car.equals(labelSymbol))
-        {
-            if(length(value) == 3)
-            {
-                Cons c2 = (Cons) ((Cons) value).cdr;
-                Cons c3 = (Cons) c2.cdr;
-                ISExp args = c2.car;
-                ISExp body = c3.car;
-                // function label
-                if(args instanceof IList)
-                {
-                    return makeFunction((IList) args, body, env);
-                }
-            }
-            else if (length(value) == 2)
-            {
-                Cons c2 = (Cons) ((Cons) value).cdr;
-                // reference label
-                return eval(c2.car, env);
-                /*if(c2.car instanceof Symbol)
-                {
-                    return lookup(env, (Symbol) c2.car);
-                }*/
-            }
-        }
-        return value;
+        return new Cons(functionSymbol, new Cons(args, new Cons(body, new Cons(env, Nil.INSTANCE))));
     }
 
-    private ISExp unlabelType(ISExp value, IList context, ImmutableSet<ISExp> boundVarTypes)
-    {
-        if(value instanceof Cons && ((Cons) value).car.equals(labelSymbol))
-        {
-            // FIXME
-            if(length(value) == 3)
-            {
-                Cons c2 = (Cons) ((Cons) value).cdr;
-                Cons c3 = (Cons) c2.cdr;
-                ISExp args = c2.car;
-                ISExp body = c3.car;
-                // function label
-                if(args instanceof IList)
-                {
-                    return makeFunctionType((IList) args, body, context, boundVarTypes);
-                }
-            }
-            else if (length(value) == 2)
-            {
-                Cons c2 = (Cons) ((Cons) value).cdr;
-                // reference label
-                return infer(c2.car, context, boundVarTypes);
-            }
-        }
-        return value.getType();
-    }
-
-    private ISExp lookup(IList env, Symbol name)
+    protected ISExp lookup(IList env, Symbol name)
     {
         if (env == Nil.INSTANCE)
         {
@@ -204,423 +154,28 @@ public abstract class Interpreter
             Map map = (Map) cons.car;
             if (map.value.containsKey(name))
             {
-                ISExp value = map.value.get(name);
-                return unlabel(value, env);
+                return map.value.get(name);
             }
             return lookup(cons.cdr, name);
         }
         throw new IllegalArgumentException("lookup called with a list that has something other than a map:" + cons.car);
     }
 
-    private ISExp beval(Cons args, IList env)
+    static Map loadFrame(Map map)
+    {
+        ImmutableMap.Builder<ISExp, ISExp> frameBuilder = ImmutableMap.builder();
+        for (java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : map.value.entrySet())
+        {
+            addLabel(frameBuilder, entry.getKey(), entry.getValue());
+        }
+        return new Map(frameBuilder.build());
+    }
+
+    protected Result beval(Cons args, IList env, State state)
     {
         if(args.cdr == Nil.INSTANCE)
         {
-            return eval(args.car, env);
-        }
-        ISExp definitions = args.car;
-        if (definitions instanceof Map)
-        {
-            ImmutableMap.Builder<ISExp, ISExp> frameBuilder = ImmutableMap.builder();
-            Map map = (Map) definitions;
-            for (java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : map.value.entrySet())
-            {
-                addLabel(frameBuilder, entry.getKey(), entry.getValue());
-            }
-            return beval((Cons) args.cdr, new Cons(new Map(frameBuilder.build()), env));
-        }
-        else
-        {
-            if(definitions instanceof IList && length(definitions) == 2)
-            {
-                Cons c1 = (Cons) definitions;
-                Cons c2 = (Cons) c1.cdr;
-                if (c1.car.equals(makeSymbol("load")) && c2.car instanceof StringAtom)
-                {
-                    String location = ((StringAtom) c2.car).value;
-                    ISExp frameExp = read(location);
-                    if (!(frameExp instanceof IMap))
-                    {
-                        throw new IllegalArgumentException("load called from bind should return map, got: " + frameExp);
-                    }
-                    if(frameExp == MNil.INSTANCE)
-                    {
-                        return beval((Cons) args.cdr, env);
-                    }
-                    return beval((Cons) args.cdr, new Cons(loadFrame((Map) frameExp), env));
-                }
-            }
-        }
-        throw new IllegalArgumentException("bind enviroments have to be either maps or load expressions.");
-    }
-
-    private ISExp evSymbol(Symbol symbol, IList env)
-    {
-        ISExp value = lookup(env, symbol);
-        if(value == Unbound.INSTANCE)
-        {
-            throw new IllegalStateException("Undefined variable " + symbol);
-        }
-        return value;
-    }
-
-    @SuppressWarnings("StringEquality")
-    private ISExp eval(ISExp exp, IList env)
-    {
-        if (exp instanceof Symbol)
-        {
-            return evSymbol((Symbol) exp, env);
-        }
-        else if (exp instanceof ArithmSymbol)
-        {
-            return new ArithmOp((ArithmSymbol) exp);
-        }
-        else if (exp instanceof IAtom)
-        {
-            return exp;
-        }
-        else if (exp instanceof Cons)
-        {
-            Cons cons = (Cons) exp;
-            if (cons.car instanceof Symbol)
-            {
-                String name = ((Symbol) cons.car).value;
-                if (name == "quote")
-                {
-                    if (length(cons.cdr) != 1)
-                    {
-                        throw new IllegalArgumentException("quote needs 1 argument, got: " + cons.cdr);
-                    }
-                    Cons cdr = (Cons) cons.cdr;
-                    return cdr.car;
-                }
-                else if (name == "lambda")
-                {
-                    if (length(cons.cdr) != 2)
-                    {
-                        throw new IllegalArgumentException("lambda needs 2 arguments, got: " + cons.cdr);
-                    }
-                    Cons c2 = (Cons) cons.cdr;
-                    Cons c3 = (Cons) c2.cdr;
-                    if (!(c2.car instanceof IList))
-                    {
-                        throw new IllegalArgumentException("lambda needs a list as a first argument, got: " + c2.car);
-                    }
-                    IList args = (IList) c2.car;
-                    ISExp body = c3.car;
-                    return makeFunction(args, body, env);
-                }
-                else if (name == "bind")
-                {
-                    if (cons.cdr == Nil.INSTANCE)
-                    {
-                        throw new IllegalArgumentException("bind needs at least 1 argument");
-                    }
-                    Cons args = (Cons) cons.cdr;
-                    return beval(args, env);
-                }
-                else if (name == "macro")
-                {
-                    // TODO
-                    if (length(cons.cdr) != 3)
-                    {
-                        throw new IllegalArgumentException("macro needs 3 arguments, got: " + cons.cdr);
-                    }
-                    Cons c2 = (Cons) cons.cdr;
-                    Cons c3 = (Cons) c2.cdr;
-                    Cons c4 = (Cons) c3.cdr;
-                    if (!(c2.car instanceof IList))
-                    {
-                        throw new IllegalArgumentException("macro needs a list as a second argument, got: " + c2.car);
-                    }
-                    return makeMacro(c2.car, (IList) c3.car, c4.car, env);
-                }
-                else if(name == "fold")
-                {
-                    Cons c1 = (Cons) evlis(cons.cdr, env);
-                    Cons c2 = (Cons) c1.cdr;
-                    Cons c3 = (Cons) c2.cdr;
-
-                    ISExp f = c1.car;
-                    ISExp ret = c2.car;
-                    IList list = (IList) c3.car;
-                    while(list != Nil.INSTANCE)
-                    {
-                        Cons c4 = (Cons) list;
-                        ret = apply(f, new Cons(ret, new Cons(c4.car, Nil.INSTANCE)));
-                        list = c4.cdr;
-                    }
-                    return ret;
-                }
-                else if(name == "mfold")
-                {
-                    Cons c1 = (Cons) evlis(cons.cdr, env);
-                    Cons c2 = (Cons) c1.cdr;
-                    Cons c3 = (Cons) c2.cdr;
-
-                    ISExp f = c1.car;
-                    ISExp ret = c2.car;
-                    if(c3.car == MNil.INSTANCE)
-                    {
-                        return ret;
-                    }
-                    Map map = (Map) c3.car;
-                    for (java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : map.value.entrySet())
-                    {
-                        ret = apply(f, new Cons(ret, new Cons(entry.getKey(), new Cons(entry.getValue(), Nil.INSTANCE))));
-                    }
-                    return ret;
-                }
-                ISExp func = lookup(env, (Symbol) cons.car);
-                if(isMacro(func))
-                {
-                    return eval(expandMacro(func, cons.cdr), env);
-                }
-            }
-            ISExp func = eval(cons.car, env);
-            IList args = evlis(cons.cdr, env);
-            return apply(func, args);
-        }
-        else if(exp instanceof Map)
-        {
-            Map map = (Map) exp;
-            ImmutableMap.Builder<ISExp, ISExp> builder = ImmutableMap.builder();
-            for(java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : map.value.entrySet())
-            {
-                builder.put(eval(entry.getKey(), env), eval(entry.getValue(), env));
-            }
-            return new Map(builder.build());
-        }
-        throw new IllegalStateException("eval of " + exp);
-    }
-
-    private ISExp inferSymbol(Symbol symbol, IList context, ImmutableSet<ISExp> boundVarTypes)
-    {
-        ISExp type = lookup(context, symbol);
-        if(type == Unbound.INSTANCE)
-        {
-            throw new IllegalStateException("Undefined variable type " + symbol);
-        }
-        return reify(type, Maps.<ISExp, ISExp>newHashMap(), boundVarTypes, unifier);
-    }
-    @SuppressWarnings("StringEquality")
-    private ISExp infer(ISExp exp, IList context, ImmutableSet<ISExp> boundVarTypes)
-    {
-        if (exp instanceof Symbol)
-        {
-            return inferSymbol((Symbol) exp, context, boundVarTypes);
-        }
-        else if (exp instanceof ArithmSymbol)
-        {
-            return ArithmOp.makeArithmType((ArithmSymbol) exp);
-        }
-        else if (exp instanceof IAtom)
-        {
-            return exp.getType();
-        }
-        else if (exp instanceof Cons)
-        {
-            Cons cons = (Cons) exp;
-            if (cons.car instanceof Symbol)
-            {
-                String name = ((Symbol) cons.car).value;
-                if (name == "quote")
-                {
-                    if (length(cons.cdr) != 1)
-                    {
-                        throw new IllegalArgumentException("quote needs 1 argument, got: " + cons.cdr);
-                    }
-                    Cons cdr = (Cons) cons.cdr;
-                    return cdr.car.getType();
-                }
-                else if (name == "lambda")
-                {
-                    if (length(cons.cdr) != 2)
-                    {
-                        throw new IllegalArgumentException("lambda needs 2 arguments, got: " + cons.cdr);
-                    }
-                    Cons c2 = (Cons) cons.cdr;
-                    Cons c3 = (Cons) c2.cdr;
-                    if (!(c2.car instanceof IList))
-                    {
-                        throw new IllegalArgumentException("lambda needs a list as a first argument, got: " + c2.car);
-                    }
-                    IList args = (IList) c2.car;
-                    ISExp body = c3.car;
-                    return makeFunctionType(args, body, context, boundVarTypes);
-                }
-                else if (name == "bind")
-                {
-                    if (cons.cdr == Nil.INSTANCE)
-                    {
-                        throw new IllegalArgumentException("bind needs at least 1 argument");
-                    }
-                    Cons args = (Cons) cons.cdr;
-                    return binfer(args, context, boundVarTypes);
-                }
-                else if (name == "macro")
-                {
-                    if (length(cons.cdr) != 3)
-                    {
-                        throw new IllegalArgumentException("macro needs 3 arguments, got: " + cons.cdr);
-                    }
-                    Cons c2 = (Cons) cons.cdr;
-                    Cons c3 = (Cons) c2.cdr;
-                    Cons c4 = (Cons) c3.cdr;
-                    if (!(c3.car instanceof IList))
-                    {
-                        throw new IllegalArgumentException("macro needs a list as a second argument, got: " + c2.car);
-                    }
-                    // TODO: check that argument lists are the same?
-                    return reify(c2.car, Maps.<ISExp, ISExp>newHashMap(), boundVarTypes, unifier);
-                }
-                // dirty hax, varargs
-                else if (name == "list")
-                {
-                    return PrimTypes.List.type;
-                }
-                else if (name == "map")
-                {
-                    return PrimTypes.Map.type;
-                }
-                // even dirtier hax
-                else if (name == "car")
-                {
-                    if (length(cons.cdr) != 1)
-                    {
-                        throw new IllegalArgumentException("car needs 1 argument, got: " + cons.cdr);
-                    }
-                    Cons cdr = (Cons) cons.cdr;
-                    unifier.unify(infer(cdr.car, context, boundVarTypes), PrimTypes.List.type);
-                    return unifier.getFreshVar();
-                }
-                else if(name == "fold")
-                {
-                    if (length(cons.cdr) != 3)
-                    {
-                        throw new IllegalArgumentException("fold needs 3 arguments, got: " + exp);
-                    }
-                    Cons c1 = (Cons) cons.cdr;
-                    Cons c2 = (Cons) c1.cdr;
-                    Cons c3 = (Cons) c2.cdr;
-
-                    ISExp f = infer(c1.car, context, boundVarTypes);
-                    ISExp z = infer(c2.car, context, boundVarTypes);
-                    ISExp list = infer(c3.car, context, boundVarTypes);
-                    // ((A, B) -> A, A, list[A]) -> A
-                    ISExp A = unifier.getFreshVar(), B = unifier.getFreshVar();
-                    ISExp fType = absType(ImmutableList.of(A, B), A);
-                    unifier.unify(f, fType);
-                    unifier.unify(z, A);
-                    unifier.unify(list, PrimTypes.List.type);
-                    return A;
-                }
-                else if(name == "mfold")
-                {
-                    if (length(cons.cdr) != 3)
-                    {
-                        throw new IllegalArgumentException("mfold needs 3 arguments, got: " + exp);
-                    }
-                    Cons c1 = (Cons) cons.cdr;
-                    Cons c2 = (Cons) c1.cdr;
-                    Cons c3 = (Cons) c2.cdr;
-
-                    ISExp f = infer(c1.car, context, boundVarTypes);
-                    ISExp z = infer(c2.car, context, boundVarTypes);
-                    ISExp map = infer(c3.car, context, boundVarTypes);
-                    // ((A, B, C) -> A, A, map[B, C]) -> A
-                    ISExp A = unifier.getFreshVar(), B = unifier.getFreshVar(), C = unifier.getFreshVar();
-                    ISExp fType = absType(ImmutableList.of(A, B, C), A);
-                    unifier.unify(f, fType);
-                    unifier.unify(z, A);
-                    unifier.unify(map, PrimTypes.Map.type);
-                    return A;
-                }
-                // macro is only looked up at the top level.
-                ISExp func = lookup(topEnv, (Symbol) cons.car);
-                if(isMacro(func))
-                {
-                    return infer(expandMacro(func, cons.cdr), context, boundVarTypes);
-                }
-            }
-            ISExp funcType = infer(cons.car, context, boundVarTypes);
-            IList args = cons.cdr;
-            ImmutableList.Builder<ISExp> argTypesBuilder = ImmutableList.builder();
-            while(args != Nil.INSTANCE)
-            {
-                Cons c2 = (Cons) args;
-                argTypesBuilder.add(infer(c2.car, context, boundVarTypes));
-                args = c2.cdr;
-            }
-            ISExp bodyType = unifier.getFreshVar();
-            unifier.unify(funcType, absType(argTypesBuilder.build(), bodyType));
-            return bodyType;
-        }
-        else if(exp instanceof Map)
-        {
-            return PrimTypes.Map.type;
-        }
-        throw new IllegalStateException("infer of " + exp);
-    }
-
-    private ISExp apply(ISExp func, IList args)
-    {
-        if (func instanceof ICallableExp)
-        {
-            return ((ICallableExp) func).apply(args);
-        }
-        if (func instanceof Cons)
-        {
-            Cons c1 = (Cons) func;
-            if ((functionSymbol.equals(c1.car) || macroSymbol.equals(c1.car)) && c1.cdr != Nil.INSTANCE)
-            {
-                Cons c2 = (Cons) c1.cdr;
-                if(macroSymbol.equals(c1.car) && c2.cdr != Nil.INSTANCE)
-                {
-                    // skip type signature
-                    c2 = (Cons) c2.cdr;
-                }
-                if (c2.car instanceof IList && c2.cdr != Nil.INSTANCE)
-                {
-                    IList argNames = (IList) c2.car;
-                    Cons c3 = (Cons) c2.cdr;
-                    ISExp body = c3.car;
-                    if (c3.cdr != Nil.INSTANCE)
-                    {
-                        Cons c4 = (Cons) c3.cdr;
-                        ISExp env = c4.car;
-                        if (env instanceof IList && c4.cdr == Nil.INSTANCE)
-                        {
-                            return eval(body, bind(argNames, args, (IList) env));
-                        }
-                    }
-                }
-            }
-        }
-        if (func instanceof Map)
-        {
-            Map map = (Map) func;
-            if(length(args) != 1)
-            {
-                throw new IllegalArgumentException("Can only apply map to 1 argument");
-            }
-            Cons c1 = (Cons) args;
-            if(map.value.containsKey(c1.car))
-            {
-                return map.value.get(c1.car);
-            }
-            throw new IllegalStateException("Map " + map + " doesn't have key " + c1.car);
-        }
-        throw new IllegalArgumentException("Don't know how to apply: " + func);
-    }
-
-    // infer stuff
-
-    private ISExp binfer(Cons args, IList context, ImmutableSet<ISExp> boundVarTypes)
-    {
-        if(args.cdr == Nil.INSTANCE)
-        {
-            return infer(args.car, context, boundVarTypes);
+            return eval(args.car, env, state);
         }
         ISExp definitions = args.car;
 
@@ -639,7 +194,7 @@ public abstract class Interpreter
                 if (c1.car.equals(makeSymbol("load")) && c2.car instanceof StringAtom)
                 {
                     String location = ((StringAtom) c2.car).value;
-                    ISExp frameExp = read(location);
+                    ISExp frameExp = reader.apply(location);
                     if (!(frameExp instanceof IMap))
                     {
                         throw new IllegalArgumentException("load called from bind should return map, got: " + frameExp);
@@ -650,45 +205,154 @@ public abstract class Interpreter
         }
         if(defs == MNil.INSTANCE)
         {
-            return binfer((Cons) args.cdr, context, boundVarTypes);
+            return beval((Cons) args.cdr, env, state);
         }
         if(defs != null)
         {
-            return binfer((Cons) args.cdr, frameToContext(loadFrame((Map) defs), context, boundVarTypes), boundVarTypes);
+            return beval((Cons) args.cdr, frameToContext(loadFrame((Map) defs), env, state), state);
         }
-        throw new IllegalArgumentException("bind enviroments have to be either direct maps or direct load expressions.");
+        throw new IllegalArgumentException("bind enviroments have to be either maps or load expressions.");
     }
 
-    private IList frameToContext(Map frame, IList context, ImmutableSet<ISExp> boundVarTypes)
+    protected IList frameToContext(Map frame, IList context, State state)
     {
-        java.util.Map<ISExp, ISExp> ctxBuilder = Maps.newHashMap();
-        ImmutableSet.Builder<ISExp> builder = ImmutableSet.builder();
-        builder.addAll(boundVarTypes);
-        for (java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : frame.value.entrySet())
-        {
-            // new ones shadow old ones. TODO: unify with the list approach?
-            ISExp type = unifier.getFreshVar();
-            ctxBuilder.put((Symbol) entry.getKey(), type);
-            builder.add(type);
-        }
-        IList newContext = new Cons(new Map(ImmutableMap.copyOf(ctxBuilder)), context);
-        ImmutableSet<ISExp> newBoundVarTypes = builder.build();
-        for (java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : frame.value.entrySet())
-        {
-            unifier.unify(ctxBuilder.get(entry.getKey()), unlabelType(entry.getValue(), newContext, newBoundVarTypes));
-            //inferBindPair(ctxBuilder, context, vars, entry.getKey(), entry.getValue());
-        }
-        return newContext;
+        return new Cons(frame, context);
     }
 
-    private IList envToContext(IList env, ImmutableSet<ISExp> boundVarTypes)
+    protected abstract Result visitSymbol(Symbol symbol, IList env, State state);
+    protected abstract Result visitArithmSymbol(ArithmSymbol symbol, IList env, State state);
+    protected abstract Result visitAtom(IAtom atom, IList env, State state);
+    protected abstract Result visitQuote(ISExp arg, IList env, State state);
+    protected abstract Result visitLambda(IList args, ISExp body, IList env, State state);
+    protected abstract Result visitMacro(ISExp type, IList args, ISExp body, IList env, State state);
+    protected abstract Result visitFold(Result func, Result res, Result list, IList env, State state);
+    protected abstract Result visitMFold(Result func, Result res, Result map, IList env, State state);
+    protected abstract Result visitApply(Result func, ImmutableList<Result> args, IList env, State state);
+    protected abstract Result visitMap(Map map, IList env, State state);
+
+    @SuppressWarnings("StringEquality")
+    protected Result eval(ISExp exp, IList env, State state)
     {
-        if (env == Nil.INSTANCE)
+        if (exp instanceof Symbol)
         {
-            return Nil.INSTANCE;
+            return visitSymbol((Symbol) exp, env, state);
         }
-        Cons cons = (Cons) env;
-        return frameToContext((Map) cons.car, envToContext(cons.cdr, boundVarTypes), boundVarTypes);
+        else if (exp instanceof ArithmSymbol)
+        {
+            return visitArithmSymbol((ArithmSymbol) exp, env, state);
+        }
+        else if (exp instanceof IAtom)
+        {
+            return visitAtom((IAtom) exp, env, state);
+        }
+        else if (exp instanceof Cons)
+        {
+            Cons cons = (Cons) exp;
+            if (cons.car instanceof Symbol)
+            {
+                String name = ((Symbol) cons.car).value;
+                if (name == "quote")
+                {
+                    if (length(cons.cdr) != 1)
+                    {
+                        throw new IllegalArgumentException("quote needs 1 argument, got: " + cons.cdr);
+                    }
+                    Cons cdr = (Cons) cons.cdr;
+                    return visitQuote(cdr.car, env, state);
+                }
+                else if (name == "lambda")
+                {
+                    if (length(cons.cdr) != 2)
+                    {
+                        throw new IllegalArgumentException("lambda needs 2 arguments, got: " + cons.cdr);
+                    }
+                    Cons c2 = (Cons) cons.cdr;
+                    Cons c3 = (Cons) c2.cdr;
+                    if (!(c2.car instanceof IList))
+                    {
+                        throw new IllegalArgumentException("lambda needs a list as a first argument, got: " + c2.car);
+                    }
+                    IList args = (IList) c2.car;
+                    ISExp body = c3.car;
+                    return visitLambda(args, body, env, state);
+                }
+                else if (name == "bind")
+                {
+                    if (cons.cdr == Nil.INSTANCE)
+                    {
+                        throw new IllegalArgumentException("bind needs at least 1 argument");
+                    }
+                    Cons args = (Cons) cons.cdr;
+                    return beval(args, env, state);
+                }
+                else if (name == "macro")
+                {
+                    if (length(cons.cdr) != 3)
+                    {
+                        throw new IllegalArgumentException("macro needs 3 arguments, got: " + cons.cdr);
+                    }
+                    Cons c2 = (Cons) cons.cdr;
+                    Cons c3 = (Cons) c2.cdr;
+                    Cons c4 = (Cons) c3.cdr;
+                    if (!(c2.car instanceof IList))
+                    {
+                        throw new IllegalArgumentException("macro needs a list as a second argument, got: " + c2.car);
+                    }
+                    return visitMacro(c2.car, (IList) c3.car, c4.car, env, state);
+                }
+                else if(name == "fold")
+                {
+                    if (length(cons.cdr) != 3)
+                    {
+                        throw new IllegalArgumentException("fold needs 3 arguments, got: " + cons.cdr);
+                    }
+                    Cons c1 = (Cons) cons.cdr;
+                    Cons c2 = (Cons) c1.cdr;
+                    Cons c3 = (Cons) c2.cdr;
+
+                    Result f = eval(c1.car, env, state);
+                    Result ret = eval(c2.car, env, state);
+                    Result list = eval(c3.car, env,state);
+
+                    return visitFold(f, ret, list, env, state);
+                }
+                else if(name == "mfold")
+                {
+                    if (length(cons.cdr) != 3)
+                    {
+                        throw new IllegalArgumentException("mfold needs 3 arguments, got: " + cons.cdr);
+                    }
+                    Cons c1 = (Cons) cons.cdr;
+                    Cons c2 = (Cons) c1.cdr;
+                    Cons c3 = (Cons) c2.cdr;
+
+                    Result f = eval(c1.car, env, state);
+                    Result ret = eval(c2.car, env, state);
+                    Result map = eval(c3.car, env, state);
+                    return visitMFold(f, ret, map, env, state);
+                }
+                Symbol symbol = (Symbol) cons.car;
+                if(getMacroEvaluator().isMacro(symbol))
+                {
+                    return eval(getMacroEvaluator().expandMacro(symbol, cons.cdr), env, state);
+                }
+            }
+            Result func = eval(cons.car, env, state);
+            IList args = cons.cdr;
+            ImmutableList.Builder<Result> argsBuilder = ImmutableList.builder();
+            while(args != Nil.INSTANCE)
+            {
+                Cons c2 = (Cons) args;
+                argsBuilder.add(eval(c2.car, env, state));
+                args = c2.cdr;
+            }
+            return visitApply(func, argsBuilder.build(), env, state);
+        }
+        else if(exp instanceof Map)
+        {
+            return visitMap((Map) exp, env, state);
+        }
+        throw new IllegalStateException("eval of " + exp);
     }
 
     private static ISExp reify(ISExp type, java.util.Map<ISExp, ISExp> newVars, ImmutableSet<ISExp> boundVarTypes, Unifier unifier)
@@ -712,53 +376,400 @@ public abstract class Interpreter
         return type;
     }
 
-    private ISExp makeFunctionType(IList args, ISExp body, IList env, ImmutableSet<ISExp> boundVarTypes)
+    public static class Evaluator extends Interpreter<Void, ISExp>
     {
-        if(args == Nil.INSTANCE)
+        private Evaluator(Function<String, ISExp> reader, IList topEnv, Evaluator macroEvaluator)
         {
-            return absType(ImmutableList.<ISExp>of(), infer(body, env, boundVarTypes));
+            super(reader, topEnv, macroEvaluator);
         }
-        java.util.Map<ISExp, ISExp> frame = Maps.newHashMap();
-        ImmutableList.Builder<ISExp> argTypesBuilder = ImmutableList.builder();
-        ImmutableSet.Builder<ISExp> builder = ImmutableSet.builder();
-        builder.addAll(boundVarTypes);
-        while(args != Nil.INSTANCE)
-        {
-            Cons c4 = (Cons) args;
-            Symbol arg = (Symbol) c4.car;
-            ISExp argType = unifier.getFreshVar();
-            frame.put(arg, argType);
-            argTypesBuilder.add(argType);
-            builder.add(argType);
-            args = c4.cdr;
-        }
-        ISExp bodyType = infer(body, new Cons(new Map(ImmutableMap.copyOf(frame)), env), builder.build());
-        return absType(argTypesBuilder.build(), bodyType);
-    }
 
-    // macro
-    private boolean isMacro(ISExp func)
-    {
-        if (func instanceof Cons)
+        public Evaluator(Function<String, ISExp> reader)
         {
-            Cons c1 = (Cons) func;
-            if (macroSymbol.equals(c1.car) && c1.cdr != Nil.INSTANCE)
+            super(reader);
+        }
+
+        public Evaluator(Function<String, ISExp> reader, ImmutableMap<? extends ISExp, ? extends ISExp> topEnv)
+        {
+            super(reader, topEnv);
+        }
+
+        public ISExp eval(ISExp exp)
+        {
+            return eval(exp, topEnv, null);
+        }
+
+        @Override
+        public ISExp visitSymbol(Symbol symbol, IList env, Void state)
+        {
+            ISExp value = unlabel(lookup(env, symbol), env);
+            if(value == Unbound.INSTANCE)
             {
-                // not checking further, assuming macroSymbol + length are enough
-                return true;
+                throw new IllegalStateException("Undefined variable " + symbol);
             }
+            return value;
         }
-        return false;
+
+        @Override
+        public ISExp visitArithmSymbol(ArithmSymbol symbol, IList env, Void state)
+        {
+            return new ArithmOp(symbol);
+        }
+
+        @Override
+        public ISExp visitAtom(IAtom atom, IList env, Void state)
+        {
+            return atom;
+        }
+
+        @Override
+        public ISExp visitQuote(ISExp arg, IList env, Void state)
+        {
+            return arg;
+        }
+
+        @Override
+        public ISExp visitLambda(IList args, ISExp body, IList env, Void state)
+        {
+            return makeFunction(args, body, env);
+        }
+
+        @Override
+        public ISExp visitMacro(ISExp type, IList args, ISExp body, IList env, Void state)
+        {
+            type = reify(type, Maps.<ISExp, ISExp>newHashMap(), ImmutableSet.<ISExp>of(), new Unifier());
+            return new Cons(macroSymbol, new Cons(type, new Cons(args, new Cons(body, new Cons(env, Nil.INSTANCE)))));
+        }
+
+        @Override
+        public ISExp visitFold(ISExp func, ISExp res, ISExp list, IList env, Void state)
+        {
+            while(list != Nil.INSTANCE)
+            {
+                Cons c4 = (Cons) list;
+                res = visitApply(func, ImmutableList.of(res, c4.car), env, state);
+                list = c4.cdr;
+            }
+            return res;
+        }
+
+        @Override
+        public ISExp visitMFold(ISExp func, ISExp res, ISExp map, IList env, Void state)
+        {
+            if(map == MNil.INSTANCE)
+            {
+                return res;
+            }
+            Map m = (Map) map;
+            for (java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : m.value.entrySet())
+            {
+                res = visitApply(func, ImmutableList.of(res, entry.getKey(), entry.getValue()), env, state);
+            }
+            return res;
+        }
+
+        @Override
+        public ISExp visitApply(ISExp func, ImmutableList<ISExp> args, IList env, Void state)
+        {
+            return apply(func, lift(args), state);
+        }
+
+        @Override
+        public ISExp visitMap(Map map, IList env, Void state)
+        {
+            ImmutableMap.Builder<ISExp, ISExp> builder = ImmutableMap.builder();
+            for(java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : map.value.entrySet())
+            {
+                builder.put(eval(entry.getKey(), env, state), eval(entry.getValue(), env, state));
+            }
+            return new Map(builder.build());
+        }
+
+        private ISExp unlabel(ISExp value, IList env)
+        {
+            if(value instanceof Cons && ((Cons) value).car.equals(labelSymbol))
+            {
+                if(length(value) == 3)
+                {
+                    Cons c2 = (Cons) ((Cons) value).cdr;
+                    Cons c3 = (Cons) c2.cdr;
+                    ISExp args = c2.car;
+                    ISExp body = c3.car;
+                    // function label
+                    if(args instanceof IList)
+                    {
+                        return makeFunction((IList) args, body, env);
+                    }
+                }
+                else if (length(value) == 2)
+                {
+                    Cons c2 = (Cons) ((Cons) value).cdr;
+                    // reference label
+                    return eval(c2.car, env, null);
+                }
+            }
+            return value;
+        }
+
+        protected ISExp apply(ISExp func, IList args, Void state)
+        {
+            if (func instanceof ICallableExp)
+            {
+                return ((ICallableExp) func).apply(args);
+            }
+            if (func instanceof Cons)
+            {
+                Cons c1 = (Cons) func;
+                if ((functionSymbol.equals(c1.car) || macroSymbol.equals(c1.car)) && c1.cdr != Nil.INSTANCE)
+                {
+                    Cons c2 = (Cons) c1.cdr;
+                    if(macroSymbol.equals(c1.car) && c2.cdr != Nil.INSTANCE)
+                    {
+                        // skip type signature
+                        c2 = (Cons) c2.cdr;
+                    }
+                    if (c2.car instanceof IList && c2.cdr != Nil.INSTANCE)
+                    {
+                        IList argNames = (IList) c2.car;
+                        Cons c3 = (Cons) c2.cdr;
+                        ISExp body = c3.car;
+                        if (c3.cdr != Nil.INSTANCE)
+                        {
+                            Cons c4 = (Cons) c3.cdr;
+                            ISExp env = c4.car;
+                            if (env instanceof IList && c4.cdr == Nil.INSTANCE)
+                            {
+                                return eval(body, bind(argNames, args, (IList) env), state);
+                            }
+                        }
+                    }
+                }
+            }
+            if (func instanceof Map)
+            {
+                Map map = (Map) func;
+                if(length(args) != 1)
+                {
+                    throw new IllegalArgumentException("Can only apply map to 1 argument");
+                }
+                Cons c1 = (Cons) args;
+                if(map.value.containsKey(c1.car))
+                {
+                    return map.value.get(c1.car);
+                }
+                throw new IllegalStateException("Map " + map + " doesn't have key " + c1.car);
+            }
+            throw new IllegalArgumentException("Don't know how to apply: " + func);
+        }
+
+        boolean isMacro(Symbol name)
+        {
+            ISExp func = lookup(topEnv, name);
+            func = unlabel(func, topEnv);
+            if (func instanceof Cons)
+            {
+                Cons c1 = (Cons) func;
+                if (macroSymbol.equals(c1.car) && c1.cdr != Nil.INSTANCE)
+                {
+                    // not checking further, assuming macroSymbol + length are enough
+                    return true;
+                }
+            }
+            return func instanceof IMacroExp;
+        }
+
+        ISExp expandMacro(Symbol name, IList args)
+        {
+            ISExp func = lookup(topEnv, name);
+            func = unlabel(func, topEnv);
+            if(func instanceof IMacroExp)
+            {
+                return ((IMacroExp) func).apply(args);
+            }
+            return apply(func, args, null);
+        }
     }
 
-    private ISExp expandMacro(ISExp func, IList args)
+    public static class TypeChecker extends Interpreter<ImmutableSet<ISExp>, ISExp>
     {
-        return apply(func, args);
-    }
+        private Unifier unifier;
 
-    private ISExp makeMacro(ISExp type, IList args, ISExp body, IList env)
-    {
-        type = reify(type, Maps.<ISExp, ISExp>newHashMap(), ImmutableSet.<ISExp>of(), new Unifier());
-        return new Cons(macroSymbol, new Cons(type, new Cons(args, new Cons(body, new Cons(env, Nil.INSTANCE)))));
+        public TypeChecker(Function<String, ISExp> reader)
+        {
+            super(reader);
+        }
+
+        public TypeChecker(Function<String, ISExp> reader, ImmutableMap<? extends ISExp, ? extends ISExp> topEnv)
+        {
+            super(reader, topEnv);
+        }
+
+        public ISExp infer(ISExp exp, Unifier unifier)
+        {
+            this.unifier = unifier;
+            return eval(exp, envToContext(topEnv, ImmutableSet.<ISExp>of()), ImmutableSet.<ISExp>of());
+        }
+
+        @Override
+        public ISExp visitSymbol(Symbol symbol, IList env, ImmutableSet<ISExp> boundVarTypes)
+        {
+            ISExp type = lookup(env, symbol);
+            if(type == Unbound.INSTANCE)
+            {
+                throw new IllegalStateException("Undefined variable type " + symbol);
+            }
+            return reify(type, Maps.<ISExp, ISExp>newHashMap(), boundVarTypes, unifier);
+        }
+
+        @Override
+        public ISExp visitArithmSymbol(ArithmSymbol symbol, IList env, ImmutableSet<ISExp> boundVarTypes)
+        {
+            return ArithmOp.makeArithmType(symbol);
+        }
+
+        @Override
+        public ISExp visitAtom(IAtom atom, IList env, ImmutableSet<ISExp> boundVarTypes)
+        {
+            return atom.getType();
+        }
+
+        @Override
+        public ISExp visitQuote(ISExp arg, IList env, ImmutableSet<ISExp> boundVarTypes)
+        {
+            return arg.getType();
+        }
+
+        @Override
+        public ISExp visitLambda(IList args, ISExp body, IList env, ImmutableSet<ISExp> boundVarTypes)
+        {
+            return makeFunctionType(args, body, env, boundVarTypes);
+        }
+
+        @Override
+        public ISExp visitMacro(ISExp type, IList args, ISExp body, IList env, ImmutableSet<ISExp> boundVarTypes)
+        {
+            return reify(type, Maps.<ISExp, ISExp>newHashMap(), boundVarTypes, unifier);
+        }
+
+        @Override
+        public ISExp visitFold(ISExp func, ISExp res, ISExp list, IList env, ImmutableSet<ISExp> boundVarTypes)
+        {
+            // ((A, B) -> A, A, list[A]) -> A
+            ISExp A = unifier.getFreshVar(), B = unifier.getFreshVar();
+            ISExp fType = absType(ImmutableList.of(A, B), A);
+            unifier.unify(func, fType);
+            unifier.unify(res, A);
+            unifier.unify(list, PrimTypes.List.type);
+            return A;
+        }
+
+        @Override
+        public ISExp visitMFold(ISExp func, ISExp res, ISExp map, IList env, ImmutableSet<ISExp> boundVarTypes)
+        {
+            // ((A, B, C) -> A, A, map[B, C]) -> A
+            ISExp A = unifier.getFreshVar(), B = unifier.getFreshVar(), C = unifier.getFreshVar();
+            ISExp fType = absType(ImmutableList.of(A, B, C), A);
+            unifier.unify(func, fType);
+            unifier.unify(res, A);
+            unifier.unify(map, PrimTypes.Map.type);
+            return A;
+        }
+
+        @Override
+        public ISExp visitApply(ISExp func, ImmutableList<ISExp> args, IList env, ImmutableSet<ISExp> boundVarTypes)
+        {
+            ISExp bodyType = unifier.getFreshVar();
+            unifier.unify(func, absType(args, bodyType));
+            return bodyType;
+        }
+
+        @Override
+        public ISExp visitMap(Map map, IList env, ImmutableSet<ISExp> isExps)
+        {
+            return PrimTypes.Map.type;
+        }
+
+        @Override
+        protected IList frameToContext(Map frame, IList context, ImmutableSet<ISExp> boundVarTypes)
+        {
+            java.util.Map<ISExp, ISExp> ctxBuilder = Maps.newHashMap();
+            ImmutableSet.Builder<ISExp> builder = ImmutableSet.builder();
+            builder.addAll(boundVarTypes);
+            for (java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : frame.value.entrySet())
+            {
+                // new ones shadow old ones. TODO: unify with the list approach?
+                ISExp type = unifier.getFreshVar();
+                ctxBuilder.put((Symbol) entry.getKey(), type);
+                builder.add(type);
+            }
+            IList newContext = new Cons(new Map(ImmutableMap.copyOf(ctxBuilder)), context);
+            ImmutableSet<ISExp> newBoundVarTypes = builder.build();
+            for (java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : frame.value.entrySet())
+            {
+                unifier.unify(ctxBuilder.get(entry.getKey()), unlabelType(entry.getValue(), newContext, newBoundVarTypes));
+                //inferBindPair(ctxBuilder, context, vars, entry.getKey(), entry.getValue());
+            }
+            return newContext;
+        }
+
+        private IList envToContext(IList env, ImmutableSet<ISExp> boundVarTypes)
+        {
+            if (env == Nil.INSTANCE)
+            {
+                return Nil.INSTANCE;
+            }
+            Cons cons = (Cons) env;
+            return frameToContext((Map) cons.car, envToContext(cons.cdr, boundVarTypes), boundVarTypes);
+        }
+
+        private ISExp unlabelType(ISExp value, IList context, ImmutableSet<ISExp> boundVarTypes)
+        {
+            if(value instanceof Cons && ((Cons) value).car.equals(labelSymbol))
+            {
+                // FIXME
+                if(length(value) == 3)
+                {
+                    Cons c2 = (Cons) ((Cons) value).cdr;
+                    Cons c3 = (Cons) c2.cdr;
+                    ISExp args = c2.car;
+                    ISExp body = c3.car;
+                    // function label
+                    if(args instanceof IList)
+                    {
+                        return makeFunctionType((IList) args, body, context, boundVarTypes);
+                    }
+                }
+                else if (length(value) == 2)
+                {
+                    Cons c2 = (Cons) ((Cons) value).cdr;
+                    // reference label
+                    return eval(c2.car, context, boundVarTypes);
+                }
+            }
+            return value.getType();
+        }
+
+        private ISExp makeFunctionType(IList args, ISExp body, IList env, ImmutableSet<ISExp> boundVarTypes)
+        {
+            if(args == Nil.INSTANCE)
+            {
+                return absType(ImmutableList.<ISExp>of(), eval(body, env, boundVarTypes));
+            }
+            java.util.Map<ISExp, ISExp> frame = Maps.newHashMap();
+            ImmutableList.Builder<ISExp> argTypesBuilder = ImmutableList.builder();
+            ImmutableSet.Builder<ISExp> builder = ImmutableSet.builder();
+            builder.addAll(boundVarTypes);
+            while(args != Nil.INSTANCE)
+            {
+                Cons c4 = (Cons) args;
+                Symbol arg = (Symbol) c4.car;
+                ISExp argType = unifier.getFreshVar();
+                frame.put(arg, argType);
+                argTypesBuilder.add(argType);
+                builder.add(argType);
+                args = c4.cdr;
+            }
+            ISExp bodyType = eval(body, new Cons(new Map(ImmutableMap.copyOf(frame)), env), builder.build());
+            return absType(argTypesBuilder.build(), bodyType);
+        }
     }
 }

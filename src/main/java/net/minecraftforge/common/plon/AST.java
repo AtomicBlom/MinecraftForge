@@ -46,6 +46,42 @@ public enum AST
         return new FloatAtom(value);
     }
 
+    static IList lift(ISExp... list)
+    {
+        IList ret = Nil.INSTANCE;
+        for (int i = list.length - 1; i >= 0; i--)
+        {
+            ret = new Cons(list[i], ret);
+        }
+        return ret;
+    }
+
+    static IList lift(ImmutableList<? extends ISExp> list)
+    {
+        IList ret = Nil.INSTANCE;
+        for (ISExp exp : list.reverse())
+        {
+            ret = new Cons(exp, ret);
+        }
+        return ret;
+    }
+
+    static ImmutableList<ISExp> unlift(IList list)
+    {
+        if(list == Nil.INSTANCE)
+        {
+            return ImmutableList.of();
+        }
+        ImmutableList.Builder<ISExp> builder = ImmutableList.builder();
+        while(list != Nil.INSTANCE)
+        {
+            Cons cons = (Cons) list;
+            builder.add(cons.car);
+            list = cons.cdr;
+        }
+        return builder.build();
+    }
+
     // private
     private static final Pattern opsPattern = Pattern.compile("[+\\-*/mMrRfF]+");
 
@@ -57,6 +93,11 @@ public enum AST
     }
 
     static interface ICallableExp extends ISExp
+    {
+        ISExp apply(IList args);
+    }
+
+    static interface IMacroExp extends ISExp
     {
         ISExp apply(IList args);
     }
@@ -328,28 +369,12 @@ public enum AST
         }
     }
 
-    static Map loadFrame(Map map)
-    {
-        ImmutableMap.Builder<ISExp, ISExp> frameBuilder = ImmutableMap.builder();
-        for (java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : map.value.entrySet())
-        {
-            Interpreter.addLabel(frameBuilder, entry.getKey(), entry.getValue());
-        }
-        /*ImmutableMap<ISExp, ISExp> frame = frameBuilder.build();
-        env = new Cons(new Map(frame), env);
-        for (java.util.Map.Entry<ISExp, ISExp> entry : frame.entrySet())
-        {
-            frameBuilder.put(entry.getKey(), eval(entry.getValue(), env));
-        }*/
-        return new Map(frameBuilder.build());
-    }
-
     static abstract class Load implements ICallableExp
     {
         @Override
         public ISExp getType()
         {
-            return PrimTypes.Invalid.type;
+            return lift(PrimTypes.String.type, makeSymbol("R"));
         }
 
         @Override
@@ -377,6 +402,63 @@ public enum AST
         }
     }
 
+    enum PrimMacro implements IMacroExp
+    {
+        List("list")
+        {
+            @Override
+            public ISExp apply(IList args)
+            {
+                if(args == Nil.INSTANCE)
+                {
+                    return Nil.INSTANCE;
+                }
+                Cons cons = (Cons) args;
+                return lift(makeSymbol("cons"), cons.car, apply(cons.cdr));
+            }
+        },
+        Map("map")
+        {
+            @Override
+            public ISExp apply(IList args)
+            {
+                if(args == Nil.INSTANCE)
+                {
+                    return MNil.INSTANCE;
+                }
+                Cons cons = (Cons) args;
+                Cons c1 = (Cons) cons.car;
+                Cons c2 = (Cons) c1.cdr;
+                return lift(makeSymbol("conm"), c1.car, c2.car, apply(cons.cdr));
+            }
+        };
+
+        private static final ISExp quoteSymbol = makeSymbol("quote");
+
+        private static ISExp quote(ISExp exp)
+        {
+            return new Cons(quoteSymbol, new Cons(exp, Nil.INSTANCE));
+        }
+
+        private final Symbol name;
+
+        private PrimMacro(String name)
+        {
+            this.name = new Symbol(name);
+        }
+
+        @Override
+        public ISExp getType()
+        {
+            return PrimTypes.Invalid.type;
+        }
+
+        @Override
+        public String toString()
+        {
+            return "&" + name.value;
+        }
+    }
     enum PrimOp implements ICallableExp
     {
         Length("length", ImmutableList.of(PrimTypes.List.type), PrimTypes.Float.type)
@@ -431,7 +513,7 @@ public enum AST
                 return new Cons(c1.car, (IList) c2.car);
             }
         },
-        Car("car")
+        Car("car", ImmutableList.of(PrimTypes.List.type), makeSymbol("T"))
         {
             @Override
             public ISExp apply(IList args)
@@ -463,22 +545,6 @@ public enum AST
                     return ((Cons) cons.car).cdr;
                 }
                 throw new IllegalArgumentException("Cdr called not on a list");
-            }
-        },
-        List("list")
-        {
-            @Override
-            public ISExp apply(IList args)
-            {
-                return args;
-            }
-        },
-        Map("map")
-        {
-            @Override
-            public ISExp apply(IList args)
-            {
-                return new Map(args);
             }
         },
         Conm("conm", ImmutableList.<ISExp>of(new Symbol("K"), new Symbol("V"), PrimTypes.Map.type), PrimTypes.Map.type)
@@ -560,12 +626,16 @@ public enum AST
             }
         };
 
-        static final ImmutableMap<Symbol, PrimOp> values;
+        static final ImmutableMap<Symbol, ISExp> values;
 
         static
         {
-            ImmutableMap.Builder<Symbol, PrimOp> builder = ImmutableMap.builder();
+            ImmutableMap.Builder<Symbol, ISExp> builder = ImmutableMap.builder();
             for (PrimOp op : values())
+            {
+                builder.put(op.name, op);
+            }
+            for (PrimMacro op : PrimMacro.values())
             {
                 builder.put(op.name, op);
             }
@@ -574,12 +644,6 @@ public enum AST
 
         private final Symbol name;
         private final ISExp type;
-
-        private PrimOp(String name)
-        {
-            this.name = new Symbol(name);
-            this.type = PrimTypes.Invalid.type;
-        }
 
         private PrimOp(String name, ImmutableList<? extends ISExp> args, ISExp ret)
         {
