@@ -99,14 +99,14 @@ public class Unifier
     private boolean occurs(Symbol type, ISExp other)
     {
         ISExp link = find(other);
-        if(other instanceof Symbol)
+        if(link instanceof Symbol)
         {
             // FIXME: ==?
-            return type.equals(other);
+            return type.equals(link);
         }
-        else if(other instanceof IList)
+        else if(link instanceof IList)
         {
-            IList list = (IList) other;
+            IList list = (IList) link;
             while(list != Nil.INSTANCE)
             {
                 Cons cons = (Cons) list;
@@ -126,7 +126,8 @@ public class Unifier
         {
             if(occurs(type, other))
             {
-                throw new IllegalStateException("recursive type: " + type + " = " + other);
+                ImmutableMap<ISExp, ISExp> typeMap = buildTypeMap();
+                throw new IllegalStateException("recursive type: " + typeToString(type, typeMap) + " = " + typeToString(other, typeMap));
             }
             // manually creating it cause it might be complex
             union.makeSet(other);
