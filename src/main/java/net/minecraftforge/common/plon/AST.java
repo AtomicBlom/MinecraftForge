@@ -4,7 +4,6 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import com.google.gson.JsonParseException;
 import com.google.gson.TypeAdapter;
@@ -14,8 +13,6 @@ import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
 
 import java.io.IOException;
-import java.util.Collections;
-import java.util.Iterator;
 import java.util.regex.Pattern;
 
 /**
@@ -28,7 +25,7 @@ public enum AST
     // public
     public static interface ISExp
     {
-        ISExp getType();
+        ISExp getType(Unifier unifier);
     }
 
     public static ISExp makeSymbol(String name)
@@ -113,7 +110,7 @@ public enum AST
         }
 
         @Override
-        public ISExp getType()
+        public ISExp getType(Unifier unifier)
         {
             return PrimTypes.Invalid.type;
         }
@@ -150,7 +147,7 @@ public enum AST
         }
 
         @Override
-        public ISExp getType()
+        public ISExp getType(Unifier unifier)
         {
             return PrimTypes.Float.type;
         }
@@ -193,7 +190,7 @@ public enum AST
         }
 
         @Override
-        public ISExp getType()
+        public ISExp getType(Unifier unifier)
         {
             return PrimTypes.String.type;
         }
@@ -237,7 +234,7 @@ public enum AST
         }
 
         @Override
-        public ISExp getType()
+        public ISExp getType(Unifier unifier)
         {
             return PrimTypes.Symbol.type;
         }
@@ -280,7 +277,7 @@ public enum AST
         }
 
         @Override
-        public ISExp getType()
+        public ISExp getType(Unifier unifier)
         {
             return PrimTypes.Symbol.type;
         }
@@ -290,7 +287,12 @@ public enum AST
     {
         static ISExp makeArithmType(ArithmSymbol ops)
         {
-            return absType(ImmutableList.copyOf(Collections.nCopies(ops.ops.length() + 1, PrimTypes.Float.type)), PrimTypes.Float.type);
+            IList args = Nil.INSTANCE;
+            for(int i = 0; i < ops.ops.length() + 1; i++)
+            {
+                args = new Cons(PrimTypes.Float.type, args);
+            }
+            return absType(args, PrimTypes.Float.type);
         }
 
         private final String ops;
@@ -363,7 +365,7 @@ public enum AST
         }
 
         @Override
-        public ISExp getType()
+        public ISExp getType(Unifier unifier)
         {
             return type;
         }
@@ -372,9 +374,10 @@ public enum AST
     static abstract class Load implements ICallableExp
     {
         @Override
-        public ISExp getType()
+        public ISExp getType(Unifier unifier)
         {
-            return lift(PrimTypes.String.type, makeSymbol("R"));
+            // unsound
+            return lift(PrimTypes.String.type, unifier.getFreshVar());
         }
 
         @Override
@@ -448,7 +451,7 @@ public enum AST
         }
 
         @Override
-        public ISExp getType()
+        public ISExp getType(Unifier unifier)
         {
             return PrimTypes.Invalid.type;
         }
@@ -461,7 +464,7 @@ public enum AST
     }
     enum PrimOp implements ICallableExp
     {
-        Length("length", ImmutableList.of(PrimTypes.List.type), PrimTypes.Float.type)
+        Length("length", lift(PrimTypes.List.type), PrimTypes.Float.type)
         {
             @Override
             public FloatAtom apply(IList args)
@@ -478,7 +481,7 @@ public enum AST
                 return new FloatAtom(length(cons.car));
             }
         },
-        Mlength("mlength", ImmutableList.of(PrimTypes.Map.type), PrimTypes.Float.type)
+        Mlength("mlength")
         {
             @Override
             public FloatAtom apply(IList args)
@@ -494,8 +497,16 @@ public enum AST
                 }
                 return new FloatAtom(length(cons.car));
             }
+
+            @Override
+            public ISExp getType(Unifier unifier)
+            {
+                ISExp r = unifier.getFreshVar();
+                return absType(lift(prodType(r)), PrimTypes.Float.type);
+            }
         },
-        Cons("cons", ImmutableList.<ISExp>of(new Symbol("T"),  PrimTypes.List.type), PrimTypes.List.type)
+        // FIXME: sum + prod
+        Cons("cons")
         {
             @Override
             public ISExp apply(IList args)
@@ -512,8 +523,15 @@ public enum AST
                 }
                 return new Cons(c1.car, (IList) c2.car);
             }
+
+            @Override
+            public ISExp getType(Unifier unifier)
+            {
+                return absType(lift(unifier.getFreshVar(), PrimTypes.List.type), PrimTypes.List.type);
+            }
         },
-        Car("car", ImmutableList.of(PrimTypes.List.type), makeSymbol("T"))
+        // unsound, not total
+        Car("car")
         {
             @Override
             public ISExp apply(IList args)
@@ -529,8 +547,15 @@ public enum AST
                 }
                 throw new IllegalArgumentException("Car called not on a list");
             }
+
+            @Override
+            public ISExp getType(Unifier unifier)
+            {
+                return absType(lift(PrimTypes.List.type), unifier.getFreshVar());
+            }
         },
-        Cdr("cdr", ImmutableList.<ISExp>of(PrimTypes.List.type), PrimTypes.List.type)
+        // not total
+        Cdr("cdr", lift(PrimTypes.List.type), PrimTypes.List.type)
         {
             @Override
             public ISExp apply(IList args)
@@ -547,82 +572,141 @@ public enum AST
                 throw new IllegalArgumentException("Cdr called not on a list");
             }
         },
-        Conm("conm", ImmutableList.<ISExp>of(new Symbol("K"), new Symbol("V"), PrimTypes.Map.type), PrimTypes.Map.type)
+        MCons("mcons")
         {
             @Override
             public ISExp apply(IList args)
             {
-                if (length(args) != 3)
-                {
-                    throw new IllegalArgumentException("Conm needs 3 arguments, got: " + args);
-                }
                 Cons c1 = (Cons) args;
                 Cons c2 = (Cons) c1.cdr;
                 Cons c3 = (Cons) c2.cdr;
-                if (!(c3.car instanceof IMap))
-                {
-                    throw new IllegalArgumentException("Conm needs a map as a third argument");
-                }
-                IMap map = (IMap) c3.car;
-                if(map == MNil.INSTANCE)
-                {
-                    return new Map(ImmutableMap.of(c1.car, c2.car));
-                }
-                Map oldMap = (AST.Map) map;
-                java.util.Map<ISExp, ISExp> newMap = Maps.newHashMap();
-                newMap.putAll(oldMap.value);
-                newMap.put(c1.car, c2.car);
-                return new Map(ImmutableMap.copyOf(newMap));
-            }
-        },
-        Carm("carm", ImmutableList.<ISExp>of(PrimTypes.Map.type), PrimTypes.List.type)
-        {
-            @Override
-            public ISExp apply(IList args)
-            {
-                if (length(args) != 1)
-                {
-                    throw new IllegalArgumentException("Carm needs 1 argument, got: " + args);
-                }
-                Cons c1 = (Cons) args;
-                if (!(c1.car instanceof Map))
-                {
-                    throw new IllegalArgumentException("Carm needs a non-empty map as an argument");
-                }
-                // immutable map iterator is stable, so this is consistent with cdrm.
-                java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry = ((Map) c1.car).value.entrySet().iterator().next();
-                return new Cons(entry.getKey(), new Cons(entry.getValue(), Nil.INSTANCE));
-            }
-        },
-        Cdrm("cdrm", ImmutableList.<ISExp>of(PrimTypes.Map.type), PrimTypes.Map.type)
-        {
-            @Override
-            public ISExp apply(IList args)
-            {
-                if (length(args) != 1)
-                {
-                    throw new IllegalArgumentException("Cdrm needs 1 argument, got: " + args);
-                }
-                Cons c1 = (Cons) args;
-                if (!(c1.car instanceof Map))
-                {
-                    throw new IllegalArgumentException("Cdrm needs a non-empty map as an argument");
-                }
-                // immutable map iterator is stable, so this is consistent with carm.
-                Iterator<? extends java.util.Map.Entry<? extends ISExp, ? extends ISExp>> iterator = ((Map) c1.car).value.entrySet().iterator();
-                iterator.next();
+                ISExp label = labelValue(c1.car);
+                ISExp value = c2.car;
+                Map map = (Map) c3.car;
                 ImmutableMap.Builder<ISExp, ISExp> builder = ImmutableMap.builder();
-                while(iterator.hasNext())
+                builder.putAll(map.value);
+                builder.put(label, value);
+                return new Map(builder.build());
+            }
+
+            @Override
+            public ISExp getType(Unifier unifier)
+            {
+                ISExp l = unifier.getFreshVar();
+                ISExp r = unifier.getFreshVar();
+                ISExp A = unifier.getFreshVar();
+                unifier.addLacks(r, l);
+                ISExp m = makeRow(l, A, r);
+                return absType(lift(l, A, prodType(r)), prodType(m));
+            }
+        },
+        MCar("mcar")
+        {
+            @Override
+            public ISExp apply(IList args)
+            {
+                Cons c1 = (Cons) args;
+                Cons c2 = (Cons) c1.cdr;
+                Map map = (Map) c1.car;
+                ISExp label = labelValue(c2.car);
+                if(!map.value.containsKey(label))
                 {
-                    java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry = iterator.next();
-                    builder.put(entry);
+                    throw new IllegalStateException("mcar: " + map + " " + label);
                 }
-                ImmutableMap<ISExp, ISExp> map = builder.build();
-                if(map.isEmpty())
+                return map.value.get(label);
+            }
+
+            @Override
+            public ISExp getType(Unifier unifier)
+            {
+                ISExp l = unifier.getFreshVar();
+                ISExp r = unifier.getFreshVar();
+                ISExp A = unifier.getFreshVar();
+                unifier.addLacks(r, l);
+                ISExp m = makeRow(l, A, r);
+                return absType(lift(prodType(m), l), A);
+            }
+        },
+        MCdr("mcdr")
+        {
+            @Override
+            public ISExp apply(IList args)
+            {
+                Cons c1 = (Cons) args;
+                Cons c2 = (Cons) c1.cdr;
+                Map map = (Map) c1.car;
+                ISExp label = labelValue(c2.car);
+                if(!map.value.containsKey(label))
                 {
-                    return MNil.INSTANCE;
+                    throw new IllegalStateException("mcar: " + map + " " + label);
                 }
-                return new Map(map);
+                ImmutableMap.Builder<ISExp, ISExp> builder = ImmutableMap.builder();
+                for(java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : map.value.entrySet())
+                {
+                    if(!entry.getKey().equals(label))
+                    {
+                        builder.put(entry);
+                    }
+                }
+                return new Map(builder.build());
+            }
+
+            @Override
+            public ISExp getType(Unifier unifier)
+            {
+                ISExp l = unifier.getFreshVar();
+                ISExp r = unifier.getFreshVar();
+                ISExp A = unifier.getFreshVar();
+                unifier.addLacks(r, l);
+                ISExp m = makeRow(l, A, r);
+                return absType(lift(prodType(m), l), prodType(r));
+            }
+        },
+        Eq("eq")
+        {
+            @Override
+            public ISExp apply(IList args)
+            {
+                Cons c1 = (Cons) args;
+                Cons c2 = (Cons) c1.cdr;
+                ISExp label = c1.car;
+                ISExp value = c2.car;
+                return lift(makeSymbol("&sum"), new Map(ImmutableMap.of(label, value)));
+            }
+
+            @Override
+            public ISExp getType(Unifier unifier)
+            {
+                ISExp l = unifier.getFreshVar();
+                ISExp r = unifier.getFreshVar();
+                ISExp A = unifier.getFreshVar();
+                unifier.addLacks(r, l);
+                ISExp m = makeRow(l, A, r);
+                return absType(lift(l, A), sumType(m));
+            }
+        },
+        Or("or")
+        {
+            @Override
+            public ISExp apply(IList args)
+            {
+                Cons c1 = (Cons) args;
+                Cons c2 = (Cons) c1.cdr;
+                ISExp label = c1.car;
+                Cons sum = (Cons) c2.car;
+                ISExp row = ((Cons) sum.cdr).car;
+                return lift(makeSymbol("&sum"), row);
+            }
+
+            @Override
+            public ISExp getType(Unifier unifier)
+            {
+                ISExp l = unifier.getFreshVar();
+                ISExp r = unifier.getFreshVar();
+                ISExp A = unifier.getFreshVar();
+                unifier.addLacks(r, l);
+                ISExp m = makeRow(l, A, r);
+                return absType(lift(l, sumType(r)), sumType(m));
             }
         };
 
@@ -645,14 +729,20 @@ public enum AST
         private final Symbol name;
         private final ISExp type;
 
-        private PrimOp(String name, ImmutableList<? extends ISExp> args, ISExp ret)
+        private PrimOp(String name)
+        {
+            this.name = new Symbol(name);
+            this.type = null;
+        }
+
+        private PrimOp(String name, IList args, ISExp ret)
         {
             this.name = new Symbol(name);
             this.type = absType(args, ret);
         }
 
         @Override
-        public ISExp getType()
+        public ISExp getType(Unifier unifier)
         {
             return type;
         }
@@ -677,7 +767,7 @@ public enum AST
         }
 
         @Override
-        public ISExp getType()
+        public ISExp getType(Unifier unifier)
         {
             return PrimTypes.List.type;
         }
@@ -726,7 +816,7 @@ public enum AST
         }
 
         @Override
-        public ISExp getType()
+        public ISExp getType(Unifier unifier)
         {
             return PrimTypes.List.type;
         }
@@ -745,9 +835,9 @@ public enum AST
         }
 
         @Override
-        public ISExp getType()
+        public ISExp getType(Unifier unifier)
         {
-            return PrimTypes.Map.type;
+            return emptyRow();
         }
     }
 
@@ -815,9 +905,17 @@ public enum AST
         }
 
         @Override
-        public ISExp getType()
+        public ISExp getType(Unifier unifier)
         {
-            return PrimTypes.Map.type;
+            // TODO cache?
+            ISExp cns = emptyRow();
+            for(java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : value.entrySet())
+            {
+                cns = makeRow(labelType(entry.getKey()), entry.getValue().getType(unifier), cns);
+            }
+            ISExp var = unifier.getFreshVar();
+            unifier.unify(var, cns);
+            return prodType(var);
         }
     }
 
@@ -826,8 +924,7 @@ public enum AST
         Float("float"),
         String("string"),
         Symbol("symbol"),
-        List("list"),
-        Map("map"),
+        List("list"), // TODO: sum + product
         Invalid("invalid");
 
         final StringAtom type;
@@ -838,15 +935,55 @@ public enum AST
         }
     }
 
-    static ISExp absType(ImmutableList<? extends ISExp> args, ISExp ret)
+    static ISExp labelType(ISExp label)
     {
-        Cons type = new Cons(ret, Nil.INSTANCE);
-        for (ISExp arg : args.reverse())
-        {
-            type = new Cons(arg, type);
-        }
-        return type;
+        return lift(makeString("label"), label);
     }
+
+    static ISExp labelValue(ISExp label)
+    {
+        Cons c1 = (Cons) label;
+        Cons c2 = (Cons) c1.cdr;
+        return c2.car;
+    }
+
+    static ISExp absType(IList args, ISExp ret)
+    {
+        return new Cons(makeString("->"), new Cons(ret, args));
+    }
+
+    static ISExp prodType(ISExp row)
+    {
+        return lift(makeString("*"), row);
+    }
+
+    static ISExp sumType(ISExp row)
+    {
+        return lift(makeString("+"), row);
+    }
+
+    static ISExp emptyRow()
+    {
+        return lift(makeString("{}"));
+    }
+
+    static ISExp makeRow(ISExp l, ISExp A, ISExp r)
+    {
+        return lift(makeString("{}"), l, A, r);
+    }
+
+    /*static ISExp to(ISExp t, ISExp r)
+    {
+        Cons cons = (Cons) r;
+        if(length(r) == 1)
+        {
+            return emptyRow();
+        }
+        Cons c2 = (Cons) cons.cdr;
+        Cons c3 = (Cons) c2.cdr;
+        Cons c4 = (Cons) c3.cdr;
+        return makeRow(c2.car, absType(lift(c3.car), t), to(t, c3.car));
+    }*/
 
     public static enum SExpTypeAdapterFactory implements TypeAdapterFactory
     {

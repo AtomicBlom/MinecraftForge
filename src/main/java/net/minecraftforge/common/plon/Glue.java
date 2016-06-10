@@ -65,7 +65,7 @@ public enum Glue implements IResourceManagerReloadListener
         return new ICallableExp()
         {
             @Override
-            public ISExp getType()
+            public ISExp getType(Unifier unifier)
             {
                 return User.asbType;
             }
@@ -124,8 +124,8 @@ public enum Glue implements IResourceManagerReloadListener
 
     private static class User implements ICallableExp
     {
-        private static final ISExp type = absType(ImmutableList.of(PrimTypes.Float.type), PrimTypes.Float.type);
-        private static final ISExp asbType = absType(ImmutableList.of(PrimTypes.String.type), type);
+        private static final ISExp type = absType(lift(PrimTypes.Float.type), PrimTypes.Float.type);
+        private static final ISExp asbType = absType(lift(PrimTypes.String.type), type);
         private final String name;
         private final ITimeValue parameter;
 
@@ -171,7 +171,7 @@ public enum Glue implements IResourceManagerReloadListener
         }
 
         @Override
-        public ISExp getType()
+        public ISExp getType(Unifier unifier)
         {
             return type;
         }
@@ -397,14 +397,14 @@ public enum Glue implements IResourceManagerReloadListener
             Unifier unifier = new Unifier();
             Interpreter.TypeChecker checker = new Interpreter.TypeChecker(Glue.getReader(), checkFrame);
             ISExp sType = checker.infer(source, unifier);
-            unifier.unify(sType, PrimTypes.Map.type);
+            //unifier.unify(sType, PrimTypes.Map.type);
             // and run it
             Interpreter.Evaluator eval = new Interpreter.Evaluator(glueReader, checkFrame);
             ISExp asmDef = eval.eval(source);
             unifier = new Unifier();
             // type check that result of asm_run is a map
             ISExp runType = checker.infer(new Cons(makeSymbol("asm_run"), new Cons(asmSource, new Cons(makeString(null), Nil.INSTANCE))), unifier);
-            unifier.unify(runType, PrimTypes.Map.type);
+            //unifier.unify(runType, PrimTypes.Map.type);
             // FIXME make exception strings less silly
             Map asm = (Map) asmDef;
             if(!asm.value.containsKey(statesKey))

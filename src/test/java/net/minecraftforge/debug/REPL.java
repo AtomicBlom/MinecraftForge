@@ -113,11 +113,10 @@ public class REPL
                         ImmutableMap<AST.ISExp, AST.ISExp> frame = ImmutableMap.copyOf(dynamicEnv);
                         Interpreter.TypeChecker checker = new Interpreter.TypeChecker(Glue.getReader(), frame);
                         AST.ISExp type = checker.infer(exp, unifier);
-                        ImmutableMap<AST.ISExp, AST.ISExp> typeMap = unifier.buildTypeMap();
-                        ctx.write("input type: " + Unifier.typeToString(type, typeMap) + "\r\n");
+                        ctx.write("input type: " + unifier.typeToString(type) + "\r\n");
                         Interpreter.Evaluator eval = new Interpreter.Evaluator(Glue.getReader(), frame);
                         AST.ISExp result = eval.eval(exp);
-                        ctx.write(result.toString() + ": " + result.getType() + "\r\n");
+                        ctx.write(result.toString() + ": " + unifier.typeToString(result.getType(unifier)) + "\r\n");
                     }
                 }
                 catch(Exception e)

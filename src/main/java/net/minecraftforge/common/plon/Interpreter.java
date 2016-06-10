@@ -75,16 +75,6 @@ public abstract class Interpreter<State, Result>
         }));
     }
 
-    private static IList reilist(IList args, java.util.Map<ISExp, ISExp> newVars, ImmutableSet<ISExp> boundVarTypes, Unifier unifier)
-    {
-        if(args == Nil.INSTANCE)
-        {
-            return Nil.INSTANCE;
-        }
-        Cons cons = (Cons) args;
-        return new Cons(reify(cons.car, newVars, boundVarTypes, unifier), reilist(cons.cdr, newVars, boundVarTypes, unifier));
-    }
-
     // eval stuff
 
     private static IList bind(IList argNames, IList args, IList env)
@@ -225,8 +215,10 @@ public abstract class Interpreter<State, Result>
     protected abstract Result visitQuote(ISExp arg, IList env, State state);
     protected abstract Result visitLambda(IList args, ISExp body, IList env, State state);
     protected abstract Result visitMacro(ISExp type, IList args, ISExp body, IList env, State state);
+    protected abstract Result visitLabel(ISExp label);
     protected abstract Result visitFold(Result func, Result res, Result list, IList env, State state);
-    protected abstract Result visitMFold(Result func, Result res, Result map, IList env, State state);
+    //protected abstract Result visitMFold(Result func, Result res, Result map, IList env, State state);
+    protected abstract Result visitHas(Result label, Result sum, Result f1, Result f2, IList env, State state);
     protected abstract Result visitApply(Result func, ImmutableList<Result> args, IList env, State state);
     protected abstract Result visitMap(Map map, IList env, State state);
 
@@ -300,6 +292,14 @@ public abstract class Interpreter<State, Result>
                     }
                     return visitMacro(c2.car, (IList) c3.car, c4.car, env, state);
                 }
+                else if(name == "label")
+                {
+                    if (length(cons.cdr) != 1 || !((((Cons) cons.cdr).car) instanceof StringAtom))
+                    {
+                        throw new IllegalArgumentException("label needs 1 string argument, got: " + cons.cdr);
+                    }
+                    return visitLabel(((Cons) cons.cdr).car);
+                }
                 else if(name == "fold")
                 {
                     if (length(cons.cdr) != 3)
@@ -316,7 +316,25 @@ public abstract class Interpreter<State, Result>
 
                     return visitFold(f, ret, list, env, state);
                 }
-                else if(name == "mfold")
+                else if(name == "has")
+                {
+                    if (length(cons.cdr) != 4)
+                    {
+                        throw new IllegalArgumentException("has needs 4 arguments, got: " + cons.cdr);
+                    }
+                    Cons c1 = (Cons) cons.cdr;
+                    Cons c2 = (Cons) c1.cdr;
+                    Cons c3 = (Cons) c2.cdr;
+                    Cons c4 = (Cons) c3.cdr;
+
+                    Result label = eval(c1.car, env, state);
+                    Result sum = eval(c2.car, env, state);
+                    Result f1 = eval(c3.car, env,state);
+                    Result f2 = eval(c4.car, env,state);
+
+                    return visitHas(label, sum, f1, f2, env, state);
+                }
+                /*else if(name == "mfold")
                 {
                     if (length(cons.cdr) != 3)
                     {
@@ -330,7 +348,7 @@ public abstract class Interpreter<State, Result>
                     Result ret = eval(c2.car, env, state);
                     Result map = eval(c3.car, env, state);
                     return visitMFold(f, ret, map, env, state);
-                }
+                }*/
                 Symbol symbol = (Symbol) cons.car;
                 if(getMacroEvaluator().isMacro(symbol))
                 {
@@ -353,27 +371,6 @@ public abstract class Interpreter<State, Result>
             return visitMap((Map) exp, env, state);
         }
         throw new IllegalStateException("eval of " + exp);
-    }
-
-    private static ISExp reify(ISExp type, java.util.Map<ISExp, ISExp> newVars, ImmutableSet<ISExp> boundVarTypes, Unifier unifier)
-    {
-        type = unifier.find(type);
-        if(type instanceof Symbol)
-        {
-            if(!boundVarTypes.contains(type))
-            {
-                if(!newVars.containsKey(type))
-                {
-                    newVars.put(type, unifier.getFreshVar());
-                }
-                return newVars.get(type);
-            }
-        }
-        if(type instanceof IList)
-        {
-            return reilist((IList) type, newVars, boundVarTypes, unifier);
-        }
-        return type;
     }
 
     public static class Evaluator extends Interpreter<Void, ISExp>
@@ -436,8 +433,14 @@ public abstract class Interpreter<State, Result>
         @Override
         public ISExp visitMacro(ISExp type, IList args, ISExp body, IList env, Void state)
         {
-            type = reify(type, Maps.<ISExp, ISExp>newHashMap(), ImmutableSet.<ISExp>of(), new Unifier());
+            type = new Unifier().reify(type, Maps.<ISExp, ISExp>newHashMap(), ImmutableSet.<ISExp>of());
             return new Cons(macroSymbol, new Cons(type, new Cons(args, new Cons(body, new Cons(env, Nil.INSTANCE)))));
+        }
+
+        @Override
+        protected ISExp visitLabel(ISExp label)
+        {
+            return lift(makeString("label"), label);
         }
 
         @Override
@@ -453,6 +456,20 @@ public abstract class Interpreter<State, Result>
         }
 
         @Override
+        protected ISExp visitHas(ISExp label, ISExp sum, ISExp f1, ISExp f2, IList env, Void state)
+        {
+            Cons sc = (Cons) sum;
+            Map row = (Map) ((Cons) sc.cdr).car;
+
+            //ISExp l = labelValue(label);
+            if(row.value.containsKey(label))
+            {
+                return visitApply(f1, ImmutableList.of(row.value.get(label)), env, state);
+            }
+            return visitApply(f2, ImmutableList.of(sum), env, state);
+        }
+
+        /*@Override
         public ISExp visitMFold(ISExp func, ISExp res, ISExp map, IList env, Void state)
         {
             if(map == MNil.INSTANCE)
@@ -465,7 +482,7 @@ public abstract class Interpreter<State, Result>
                 res = visitApply(func, ImmutableList.of(res, entry.getKey(), entry.getValue()), env, state);
             }
             return res;
-        }
+        }*/
 
         @Override
         public ISExp visitApply(ISExp func, ImmutableList<ISExp> args, IList env, Void state)
@@ -617,7 +634,9 @@ public abstract class Interpreter<State, Result>
             {
                 throw new IllegalStateException("Undefined variable type " + symbol);
             }
-            return reify(type, Maps.<ISExp, ISExp>newHashMap(), boundVarTypes, unifier);
+            ISExp newType = unifier.reify(type, Maps.<ISExp, ISExp>newHashMap(), boundVarTypes);
+            //System.out.println("lookup-reify: " + symbol + " | " + unifier.typeToString(type) + " | " + unifier.typeToString(newType));
+            return newType;
         }
 
         @Override
@@ -629,13 +648,13 @@ public abstract class Interpreter<State, Result>
         @Override
         public ISExp visitAtom(IAtom atom, IList env, ImmutableSet<ISExp> boundVarTypes)
         {
-            return atom.getType();
+            return atom.getType(unifier);
         }
 
         @Override
         public ISExp visitQuote(ISExp arg, IList env, ImmutableSet<ISExp> boundVarTypes)
         {
-            return arg.getType();
+            return arg.getType(unifier);
         }
 
         @Override
@@ -647,7 +666,13 @@ public abstract class Interpreter<State, Result>
         @Override
         public ISExp visitMacro(ISExp type, IList args, ISExp body, IList env, ImmutableSet<ISExp> boundVarTypes)
         {
-            return reify(type, Maps.<ISExp, ISExp>newHashMap(), boundVarTypes, unifier);
+            return unifier.reify(type, Maps.<ISExp, ISExp>newHashMap(), boundVarTypes);
+        }
+
+        @Override
+        protected ISExp visitLabel(ISExp label)
+        {
+            return labelType(label);
         }
 
         @Override
@@ -655,7 +680,7 @@ public abstract class Interpreter<State, Result>
         {
             // ((A, B) -> A, A, list[A]) -> A
             ISExp A = unifier.getFreshVar(), B = unifier.getFreshVar();
-            ISExp fType = absType(ImmutableList.of(A, B), A);
+            ISExp fType = absType(lift(A, B), A);
             unifier.unify(func, fType);
             unifier.unify(res, A);
             unifier.unify(list, PrimTypes.List.type);
@@ -663,6 +688,20 @@ public abstract class Interpreter<State, Result>
         }
 
         @Override
+        protected ISExp visitHas(ISExp label, ISExp sum, ISExp f1, ISExp f2, IList env, ImmutableSet<ISExp> isExps)
+        {
+            ISExp r = unifier.getFreshVar();
+            ISExp A = unifier.getFreshVar();
+            ISExp B = unifier.getFreshVar();
+            unifier.addLacks(r, label);
+            ISExp m = makeRow(label, A, r);
+            unifier.unify(sumType(m), sum);
+            unifier.unify(absType(lift(A), B), f1);
+            unifier.unify(absType(lift(sumType(r)), B), f2);
+            return B;
+        }
+
+        /*@Override
         public ISExp visitMFold(ISExp func, ISExp res, ISExp map, IList env, ImmutableSet<ISExp> boundVarTypes)
         {
             // ((A, B, C) -> A, A, map[B, C]) -> A
@@ -672,20 +711,28 @@ public abstract class Interpreter<State, Result>
             unifier.unify(res, A);
             unifier.unify(map, PrimTypes.Map.type);
             return A;
-        }
+        }*/
 
         @Override
         public ISExp visitApply(ISExp func, ImmutableList<ISExp> args, IList env, ImmutableSet<ISExp> boundVarTypes)
         {
             ISExp bodyType = unifier.getFreshVar();
-            unifier.unify(func, absType(args, bodyType));
+            unifier.unify(func, absType(lift(args), bodyType));
             return bodyType;
         }
 
         @Override
-        public ISExp visitMap(Map map, IList env, ImmutableSet<ISExp> isExps)
+        public ISExp visitMap(Map map, IList env, ImmutableSet<ISExp> boundVarTypes)
         {
-            return PrimTypes.Map.type;
+            ISExp cns = emptyRow();
+            for(java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : map.value.entrySet())
+            {
+                // TODO: label eval?
+                cns = makeRow(labelType(entry.getKey()), eval(entry.getValue(), env, boundVarTypes), cns);
+            }
+            ISExp ret = unifier.getFreshVar();
+            unifier.unify(ret, cns);
+            return prodType(ret);
         }
 
         @Override
@@ -745,14 +792,14 @@ public abstract class Interpreter<State, Result>
                     return eval(c2.car, context, boundVarTypes);
                 }
             }
-            return value.getType();
+            return value.getType(unifier);
         }
 
         private ISExp makeFunctionType(IList args, ISExp body, IList env, ImmutableSet<ISExp> boundVarTypes)
         {
             if(args == Nil.INSTANCE)
             {
-                return absType(ImmutableList.<ISExp>of(), eval(body, env, boundVarTypes));
+                return absType(Nil.INSTANCE, eval(body, env, boundVarTypes));
             }
             java.util.Map<ISExp, ISExp> frame = Maps.newHashMap();
             ImmutableList.Builder<ISExp> argTypesBuilder = ImmutableList.builder();
@@ -769,7 +816,7 @@ public abstract class Interpreter<State, Result>
                 args = c4.cdr;
             }
             ISExp bodyType = eval(body, new Cons(new Map(ImmutableMap.copyOf(frame)), env), builder.build());
-            return absType(argTypesBuilder.build(), bodyType);
+            return absType(lift(argTypesBuilder.build()), bodyType);
         }
     }
 }
