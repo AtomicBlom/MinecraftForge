@@ -775,12 +775,19 @@ public enum AST
     {
         final ISExp car;
         final IList cdr;
+        final String context;
         final int hashCode;
 
         Cons(ISExp car, IList cdr)
         {
+            this(car, cdr, null);
+        }
+
+        Cons(ISExp car, IList cdr, String context)
+        {
             this.car = car;
             this.cdr = cdr;
+            this.context = context;
             this.hashCode = Objects.hashCode(car, cdr);
         }
 
@@ -1145,7 +1152,8 @@ public enum AST
                     {
                         return Nil.INSTANCE;
                     }
-                    return new Cons(read(in), readCdr(in));
+                    String context = in.toString();
+                    return new Cons(read(in), readCdr(in), context);
                 }
 
                 private ISExp parseString(String string)
@@ -1171,6 +1179,7 @@ public enum AST
 
                 public ISExp read(JsonReader in) throws IOException
                 {
+                    String context = in.toString();
                     switch (in.peek())
                     {
                         case STRING:

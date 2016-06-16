@@ -239,131 +239,138 @@ public abstract class Interpreter<State, Result>
         else if (exp instanceof Cons)
         {
             Cons cons = (Cons) exp;
-            if (cons.car instanceof Symbol)
+            try
             {
-                String name = ((Symbol) cons.car).value;
-                if (name == "quote")
+                if (cons.car instanceof Symbol)
                 {
-                    if (length(cons.cdr) != 1)
+                    String name = ((Symbol) cons.car).value;
+                    if (name == "quote")
                     {
-                        throw new IllegalArgumentException("quote needs 1 argument, got: " + cons.cdr);
+                        if (length(cons.cdr) != 1)
+                        {
+                            throw new IllegalArgumentException("quote needs 1 argument, got: " + cons.cdr);
+                        }
+                        Cons cdr = (Cons) cons.cdr;
+                        return visitQuote(cdr.car, env, state);
                     }
-                    Cons cdr = (Cons) cons.cdr;
-                    return visitQuote(cdr.car, env, state);
-                }
-                else if (name == "lambda")
-                {
-                    if (length(cons.cdr) != 2)
+                    else if (name == "lambda")
                     {
-                        throw new IllegalArgumentException("lambda needs 2 arguments, got: " + cons.cdr);
+                        if (length(cons.cdr) != 2)
+                        {
+                            throw new IllegalArgumentException("lambda needs 2 arguments, got: " + cons.cdr);
+                        }
+                        Cons c2 = (Cons) cons.cdr;
+                        Cons c3 = (Cons) c2.cdr;
+                        if (!(c2.car instanceof IList))
+                        {
+                            throw new IllegalArgumentException("lambda needs a list as a first argument, got: " + c2.car);
+                        }
+                        IList args = (IList) c2.car;
+                        ISExp body = c3.car;
+                        return visitLambda(args, body, env, state);
                     }
-                    Cons c2 = (Cons) cons.cdr;
-                    Cons c3 = (Cons) c2.cdr;
-                    if (!(c2.car instanceof IList))
+                    else if (name == "bind")
                     {
-                        throw new IllegalArgumentException("lambda needs a list as a first argument, got: " + c2.car);
+                        if (cons.cdr == Nil.INSTANCE)
+                        {
+                            throw new IllegalArgumentException("bind needs at least 1 argument");
+                        }
+                        Cons args = (Cons) cons.cdr;
+                        return beval(args, env, state);
                     }
-                    IList args = (IList) c2.car;
-                    ISExp body = c3.car;
-                    return visitLambda(args, body, env, state);
-                }
-                else if (name == "bind")
-                {
-                    if (cons.cdr == Nil.INSTANCE)
+                    else if (name == "macro")
                     {
-                        throw new IllegalArgumentException("bind needs at least 1 argument");
+                        if (length(cons.cdr) != 3)
+                        {
+                            throw new IllegalArgumentException("macro needs 3 arguments, got: " + cons.cdr);
+                        }
+                        Cons c2 = (Cons) cons.cdr;
+                        Cons c3 = (Cons) c2.cdr;
+                        Cons c4 = (Cons) c3.cdr;
+                        if (!(c2.car instanceof IList))
+                        {
+                            throw new IllegalArgumentException("macro needs a list as a second argument, got: " + c2.car);
+                        }
+                        return visitMacro(c2.car, (IList) c3.car, c4.car, env, state);
                     }
-                    Cons args = (Cons) cons.cdr;
-                    return beval(args, env, state);
-                }
-                else if (name == "macro")
-                {
-                    if (length(cons.cdr) != 3)
+                    else if (name == "label")
                     {
-                        throw new IllegalArgumentException("macro needs 3 arguments, got: " + cons.cdr);
+                        if (length(cons.cdr) != 1 || !((((Cons) cons.cdr).car) instanceof StringAtom))
+                        {
+                            throw new IllegalArgumentException("label needs 1 string argument, got: " + cons.cdr);
+                        }
+                        return visitLabel(((Cons) cons.cdr).car);
                     }
-                    Cons c2 = (Cons) cons.cdr;
-                    Cons c3 = (Cons) c2.cdr;
-                    Cons c4 = (Cons) c3.cdr;
-                    if (!(c2.car instanceof IList))
+                    else if (name == "fold")
                     {
-                        throw new IllegalArgumentException("macro needs a list as a second argument, got: " + c2.car);
-                    }
-                    return visitMacro(c2.car, (IList) c3.car, c4.car, env, state);
-                }
-                else if(name == "label")
-                {
-                    if (length(cons.cdr) != 1 || !((((Cons) cons.cdr).car) instanceof StringAtom))
-                    {
-                        throw new IllegalArgumentException("label needs 1 string argument, got: " + cons.cdr);
-                    }
-                    return visitLabel(((Cons) cons.cdr).car);
-                }
-                else if(name == "fold")
-                {
-                    if (length(cons.cdr) != 3)
-                    {
-                        throw new IllegalArgumentException("fold needs 3 arguments, got: " + cons.cdr);
-                    }
-                    Cons c1 = (Cons) cons.cdr;
-                    Cons c2 = (Cons) c1.cdr;
-                    Cons c3 = (Cons) c2.cdr;
+                        if (length(cons.cdr) != 3)
+                        {
+                            throw new IllegalArgumentException("fold needs 3 arguments, got: " + cons.cdr);
+                        }
+                        Cons c1 = (Cons) cons.cdr;
+                        Cons c2 = (Cons) c1.cdr;
+                        Cons c3 = (Cons) c2.cdr;
 
-                    Result f = eval(c1.car, env, state);
-                    Result ret = eval(c2.car, env, state);
-                    Result list = eval(c3.car, env,state);
+                        Result f = eval(c1.car, env, state);
+                        Result ret = eval(c2.car, env, state);
+                        Result list = eval(c3.car, env, state);
 
-                    return visitFold(f, ret, list, env, state);
-                }
-                else if(name == "has")
-                {
-                    if (length(cons.cdr) != 4)
-                    {
-                        throw new IllegalArgumentException("has needs 4 arguments, got: " + cons.cdr);
+                        return visitFold(f, ret, list, env, state);
                     }
-                    Cons c1 = (Cons) cons.cdr;
-                    Cons c2 = (Cons) c1.cdr;
-                    Cons c3 = (Cons) c2.cdr;
-                    Cons c4 = (Cons) c3.cdr;
-
-                    Result label = eval(c1.car, env, state);
-                    Result sum = eval(c2.car, env, state);
-                    Result f1 = eval(c3.car, env,state);
-                    Result f2 = eval(c4.car, env,state);
-
-                    return visitHas(label, sum, f1, f2, env, state);
-                }
-                /*else if(name == "mfold")
-                {
-                    if (length(cons.cdr) != 3)
+                    else if (name == "has")
                     {
-                        throw new IllegalArgumentException("mfold needs 3 arguments, got: " + cons.cdr);
-                    }
-                    Cons c1 = (Cons) cons.cdr;
-                    Cons c2 = (Cons) c1.cdr;
-                    Cons c3 = (Cons) c2.cdr;
+                        if (length(cons.cdr) != 4)
+                        {
+                            throw new IllegalArgumentException("has needs 4 arguments, got: " + cons.cdr);
+                        }
+                        Cons c1 = (Cons) cons.cdr;
+                        Cons c2 = (Cons) c1.cdr;
+                        Cons c3 = (Cons) c2.cdr;
+                        Cons c4 = (Cons) c3.cdr;
 
-                    Result f = eval(c1.car, env, state);
-                    Result ret = eval(c2.car, env, state);
-                    Result map = eval(c3.car, env, state);
-                    return visitMFold(f, ret, map, env, state);
-                }*/
-                Symbol symbol = (Symbol) cons.car;
-                if(getMacroEvaluator().isMacro(symbol))
-                {
-                    return eval(getMacroEvaluator().expandMacro(symbol, cons.cdr), env, state);
+                        Result label = eval(c1.car, env, state);
+                        Result sum = eval(c2.car, env, state);
+                        Result f1 = eval(c3.car, env, state);
+                        Result f2 = eval(c4.car, env, state);
+
+                        return visitHas(label, sum, f1, f2, env, state);
+                    }
+                    /*else if(name == "mfold")
+                    {
+                        if (length(cons.cdr) != 3)
+                        {
+                            throw new IllegalArgumentException("mfold needs 3 arguments, got: " + cons.cdr);
+                        }
+                        Cons c1 = (Cons) cons.cdr;
+                        Cons c2 = (Cons) c1.cdr;
+                        Cons c3 = (Cons) c2.cdr;
+
+                        Result f = eval(c1.car, env, state);
+                        Result ret = eval(c2.car, env, state);
+                        Result map = eval(c3.car, env, state);
+                        return visitMFold(f, ret, map, env, state);
+                    }*/
+                    Symbol symbol = (Symbol) cons.car;
+                    if (getMacroEvaluator().isMacro(symbol))
+                    {
+                        return eval(getMacroEvaluator().expandMacro(symbol, cons.cdr), env, state);
+                    }
                 }
+                Result func = eval(cons.car, env, state);
+                IList args = cons.cdr;
+                ImmutableList.Builder<Result> argsBuilder = ImmutableList.builder();
+                while (args != Nil.INSTANCE)
+                {
+                    Cons c2 = (Cons) args;
+                    argsBuilder.add(eval(c2.car, env, state));
+                    args = c2.cdr;
+                }
+                return visitApply(func, argsBuilder.build(), env, state);
             }
-            Result func = eval(cons.car, env, state);
-            IList args = cons.cdr;
-            ImmutableList.Builder<Result> argsBuilder = ImmutableList.builder();
-            while(args != Nil.INSTANCE)
+            catch (Exception e)
             {
-                Cons c2 = (Cons) args;
-                argsBuilder.add(eval(c2.car, env, state));
-                args = c2.cdr;
+                throw new IllegalStateException("Exception evaluating " + cons + " at " + cons.context, e);
             }
-            return visitApply(func, argsBuilder.build(), env, state);
         }
         else if(exp instanceof Map)
         {
