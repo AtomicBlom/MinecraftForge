@@ -4,6 +4,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 import com.google.gson.JsonParseException;
 import com.google.gson.TypeAdapter;
@@ -28,9 +29,14 @@ public enum AST
         ISExp getType(Unifier unifier);
     }
 
+    private static final java.util.Map<String, Symbol> symbolCache = Maps.newIdentityHashMap();
     public static ISExp makeSymbol(String name)
     {
-        return new Symbol(name);
+        if(!symbolCache.containsKey(name))
+        {
+            symbolCache.put(name, new Symbol(name));
+        }
+        return symbolCache.get(name);
     }
 
     public static ISExp makeString(String name)
@@ -174,7 +180,7 @@ public enum AST
         @Override
         public int hashCode()
         {
-            return Objects.hashCode(value);
+            return value.hashCode();
         }
 
         @Override
@@ -202,23 +208,14 @@ public enum AST
 
         private Symbol(String value)
         {
-            this.value = value.intern();
+            this.value = value;
         }
 
-        @SuppressWarnings("StringEquality")
+        // symbols are interned, so only identity equality is possible
         @Override
         public boolean equals(Object o)
         {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
-            Symbol that = (Symbol) o;
-            return value == that.value;
-        }
-
-        @Override
-        public int hashCode()
-        {
-            return Objects.hashCode(value);
+            return this == o;
         }
 
         @Override
@@ -261,7 +258,7 @@ public enum AST
         @Override
         public int hashCode()
         {
-            return Objects.hashCode(ops);
+            return ops.hashCode();
         }
 
         @Override
@@ -377,7 +374,7 @@ public enum AST
         public ISExp getType(Unifier unifier)
         {
             // unsound
-            return lift(PrimTypes.String.type, unifier.getFreshVar());
+            return absType(lift(PrimTypes.String.type), unifier.getFreshVar());
         }
 
         @Override
@@ -447,7 +444,7 @@ public enum AST
 
         private PrimMacro(String name)
         {
-            this.name = new Symbol(name);
+            this.name = (Symbol) makeSymbol(name);
         }
 
         @Override
@@ -580,7 +577,7 @@ public enum AST
                 Cons c1 = (Cons) args;
                 Cons c2 = (Cons) c1.cdr;
                 Cons c3 = (Cons) c2.cdr;
-                ISExp label = labelValue(c1.car);
+                ISExp label = c1.car;
                 ISExp value = c2.car;
                 Map map = (Map) c3.car;
                 ImmutableMap.Builder<ISExp, ISExp> builder = ImmutableMap.builder();
@@ -608,7 +605,7 @@ public enum AST
                 Cons c1 = (Cons) args;
                 Cons c2 = (Cons) c1.cdr;
                 Map map = (Map) c1.car;
-                ISExp label = labelValue(c2.car);
+                ISExp label = c2.car;
                 if(!map.value.containsKey(label))
                 {
                     throw new IllegalStateException("mcar: " + map + " " + label);
@@ -623,7 +620,8 @@ public enum AST
                 ISExp r = unifier.getFreshVar();
                 ISExp A = unifier.getFreshVar();
                 unifier.addLacks(r, l);
-                ISExp m = makeRow(l, A, r);
+                ISExp m = unifier.getFreshVar();
+                unifier.unify(prodType(m), prodType(makeRow(l, A, r)));
                 return absType(lift(prodType(m), l), A);
             }
         },
@@ -635,7 +633,7 @@ public enum AST
                 Cons c1 = (Cons) args;
                 Cons c2 = (Cons) c1.cdr;
                 Map map = (Map) c1.car;
-                ISExp label = labelValue(c2.car);
+                ISExp label = c2.car;
                 if(!map.value.containsKey(label))
                 {
                     throw new IllegalStateException("mcar: " + map + " " + label);
@@ -731,13 +729,13 @@ public enum AST
 
         private PrimOp(String name)
         {
-            this.name = new Symbol(name);
+            this.name = (Symbol) makeSymbol(name);
             this.type = null;
         }
 
         private PrimOp(String name, IList args, ISExp ret)
         {
-            this.name = new Symbol(name);
+            this.name = (Symbol) makeSymbol(name);
             this.type = absType(args, ret);
         }
 
@@ -777,11 +775,13 @@ public enum AST
     {
         final ISExp car;
         final IList cdr;
+        final int hashCode;
 
         Cons(ISExp car, IList cdr)
         {
             this.car = car;
             this.cdr = cdr;
+            this.hashCode = Objects.hashCode(car, cdr);
         }
 
         @Override
@@ -796,7 +796,7 @@ public enum AST
         @Override
         public int hashCode()
         {
-            return Objects.hashCode(car, cdr);
+            return hashCode;
         }
 
         private String cdrString()
@@ -870,7 +870,7 @@ public enum AST
             boolean isJsonifiable = true;
             for (ISExp exp : value.keySet())
             {
-                if (!(exp instanceof IStringAtom))
+                if (!isStringLabelExp(exp))
                 {
                     isJsonifiable = false;
                     break;
@@ -907,15 +907,16 @@ public enum AST
         @Override
         public ISExp getType(Unifier unifier)
         {
+            return PrimTypes.Invalid.type;
             // TODO cache?
-            ISExp cns = emptyRow();
+            /*ISExp cns = emptyRow();
             for(java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : value.entrySet())
             {
-                cns = makeRow(labelType(entry.getKey()), entry.getValue().getType(unifier), cns);
+                cns = makeRow(entry.getKey().getType(unifier), entry.getValue().getType(unifier), cns);
             }
             ISExp var = unifier.getFreshVar();
-            unifier.unify(var, cns);
-            return prodType(var);
+            unifier.unify(prodType(var), prodType(cns));
+            return prodType(var);*/
         }
     }
 
@@ -927,11 +928,11 @@ public enum AST
         List("list"), // TODO: sum + product
         Invalid("invalid");
 
-        final StringAtom type;
+        final ISExp type;
 
         PrimTypes(String type)
         {
-            this.type = new StringAtom(type);
+            this.type = makeString(type);
         }
     }
 
@@ -945,6 +946,23 @@ public enum AST
         Cons c1 = (Cons) label;
         Cons c2 = (Cons) c1.cdr;
         return c2.car;
+    }
+
+    static boolean isLabelExp(ISExp exp)
+    {
+        return exp instanceof Symbol || (exp instanceof Cons && length(exp) == 2 && ((Cons) exp).car.equals(makeString("label")));
+    }
+
+    static boolean isStringLabelExp(ISExp exp)
+    {
+        return exp instanceof Symbol || (exp instanceof Cons && length(exp) == 2 && ((Cons) exp).car.equals(makeString("label")) && ((Cons) ((Cons) exp).cdr).car instanceof StringAtom);
+    }
+
+    static String sugarLabel(ISExp exp)
+    {
+        Cons c1 = (Cons) exp;
+        Cons c2 = (Cons) c1.cdr;
+        return ":" + ((StringAtom) c2.car).value;
     }
 
     static ISExp absType(IList args, ISExp ret)
@@ -967,9 +985,54 @@ public enum AST
         return lift(makeString("{}"));
     }
 
-    static ISExp makeRow(ISExp l, ISExp A, ISExp r)
+    static ISExp makeRow(ISExp l, ISExp t, ISExp r)
     {
-        return lift(makeString("{}"), l, A, r);
+        if(!isLabelExp(l))
+        {
+            throw new IllegalStateException("Expecting label type, got: " + l);
+        }
+        if(r instanceof Cons)
+        {
+            Cons c1 = (Cons) r;
+            if(length(c1) != 1)
+            {
+                Cons c2 = (Cons) c1.cdr;
+                Cons c3 = (Cons) c2.cdr;
+                Cons c4 = (Cons) c3.cdr;
+
+                ISExp l2 = c2.car;
+                ISExp t2 = c3.car;
+                ISExp r2 = c4.car;
+
+                if (l.toString().compareTo(l2.toString()) >= 0)
+                {
+                    return lift(makeString("{}"), l2, t2, makeRow(l, t, r2));
+                }
+            }
+        }
+        return lift(makeString("{}"), l, t, r);
+    }
+
+    // FIXME: make more efficient
+    static ISExp sortRow(ISExp r)
+    {
+        if(r instanceof Cons)
+        {
+            Cons c1 = (Cons) r;
+            if(length(c1) != 1)
+            {
+                Cons c2 = (Cons) c1.cdr;
+                Cons c3 = (Cons) c2.cdr;
+                Cons c4 = (Cons) c3.cdr;
+
+                ISExp l = c2.car;
+                ISExp t = c3.car;
+                ISExp r2 = c4.car;
+
+                return makeRow(l, t, r2);
+            }
+        }
+        return r;
     }
 
     /*static ISExp to(ISExp t, ISExp r)
@@ -1009,6 +1072,10 @@ public enum AST
                     {
                         out.value("#" + ((Symbol) parameter).value);
                     }
+                    else if(parameter instanceof StringAtom)
+                    {
+                        out.value(" " + ((StringAtom) parameter).value);
+                    }
                     else if (parameter == Nil.INSTANCE)
                     {
                         out.beginArray();
@@ -1016,13 +1083,20 @@ public enum AST
                     }
                     else if (parameter instanceof Cons)
                     {
-                        out.beginArray();
-                        write(out, ((Cons) parameter).car);
-                        for (IList cdr = ((Cons) parameter).cdr; cdr instanceof Cons; cdr = ((Cons) cdr).cdr)
+                        if(isStringLabelExp(parameter))
                         {
-                            write(out, ((Cons) cdr).car);
+                            out.value(sugarLabel(parameter));
                         }
-                        out.endArray();
+                        else
+                        {
+                            out.beginArray();
+                            write(out, ((Cons) parameter).car);
+                            for (IList cdr = ((Cons) parameter).cdr; cdr instanceof Cons; cdr = ((Cons) cdr).cdr)
+                            {
+                                write(out, ((Cons) cdr).car);
+                            }
+                            out.endArray();
+                        }
                     }
                     else if (parameter == MNil.INSTANCE)
                     {
@@ -1037,7 +1111,16 @@ public enum AST
                             out.beginObject();
                             for(java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : map.value.entrySet())
                             {
-                                out.name(((IStringAtom)entry.getKey()).value());
+                                String name;
+                                if(entry.getKey() instanceof IStringAtom)
+                                {
+                                    name = ((IStringAtom) entry.getKey()).value();
+                                }
+                                else
+                                {
+                                    name = sugarLabel(entry.getKey());
+                                }
+                                out.name(name);
                                 write(out, entry.getValue());
                             }
                             out.endObject();
@@ -1069,11 +1152,15 @@ public enum AST
                 {
                     if (string.startsWith("#"))
                     {
-                        return new Symbol(string.substring(1));
+                        return makeSymbol(string.substring(1).intern());
                     }
                     if (string.startsWith(" "))
                     {
-                        return new StringAtom(string.substring(1));
+                        return makeString(string.substring(1));
+                    }
+                    if (string.startsWith(":"))
+                    {
+                        return lift(makeSymbol("label"), makeString(string.substring(1)));
                     }
                     if (opsPattern.matcher(string).matches())
                     {

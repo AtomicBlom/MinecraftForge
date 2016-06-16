@@ -56,7 +56,7 @@ public class REPL
             }
         }));
 
-        final Gson gson = new GsonBuilder().registerTypeAdapterFactory(AST.SExpTypeAdapterFactory.INSTANCE).create();
+        final Gson gson = new GsonBuilder().registerTypeAdapterFactory(AST.SExpTypeAdapterFactory.INSTANCE).setPrettyPrinting().disableHtmlEscaping().create();
 
         final StringDecoder decoder = new StringDecoder(Charsets.UTF_8);
         final StringEncoder encoder = new StringEncoder(Charsets.UTF_8);
@@ -84,12 +84,12 @@ public class REPL
                     if (input.startsWith("setf "))
                     {
                         String[] parts = input.split(" +");
-                        dynamicEnv.put(AST.makeSymbol(parts[1]), AST.makeFloat(Float.parseFloat(parts[2])));
+                        dynamicEnv.put(AST.makeSymbol(parts[1].intern()), AST.makeFloat(Float.parseFloat(parts[2])));
                     }
                     else if (input.startsWith("sets "))
                     {
                         String[] parts = input.split(" +");
-                        dynamicEnv.put(AST.makeSymbol(parts[1]), AST.makeString(parts[2]));
+                        dynamicEnv.put(AST.makeSymbol(parts[1].intern()), AST.makeString(parts[2]));
                     }
                     else if (input.startsWith("setu "))
                     {
@@ -116,7 +116,7 @@ public class REPL
                         ctx.write("input type: " + unifier.typeToString(type) + "\r\n");
                         Interpreter.Evaluator eval = new Interpreter.Evaluator(Glue.getReader(), frame);
                         AST.ISExp result = eval.eval(exp);
-                        ctx.write(result.toString() + ": " + unifier.typeToString(result.getType(unifier)) + "\r\n");
+                        ctx.write(gson.toJson(result, AST.ISExp.class) + ": " + unifier.typeToString(result.getType(unifier)) + "\r\n");
                     }
                 }
                 catch(Exception e)

@@ -1,10 +1,11 @@
 package net.minecraftforge.common.plon;
 
-import com.google.common.base.*;
+import com.google.common.base.Function;
 import com.google.common.base.Objects;
 import com.google.common.base.Optional;
 import com.google.common.collect.*;
 import net.minecraftforge.common.util.DisjointMap;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
 
 import java.util.*;
@@ -25,22 +26,22 @@ public class Unifier
     private int nextVar = 0;
     ISExp getFreshVar()
     {
-        ISExp symbol = makeSymbol("T" + nextVar++);
+        ISExp symbol = makeSymbol(("T" + nextVar++).intern());
         globalEnv.substitution.makeSet((Symbol) symbol);
         return symbol;
     }
 
     private Environment globalEnv = new Environment();
 
-    ISExp find(ISExp exp)
+    /*ISExp find(ISExp exp)
     {
         return globalEnv.find(exp);
-    }
+    }*/
 
     void unify(ISExp first, ISExp second)
     {
         Set<Environment> ret = Sets.newHashSet();
-        EnvSet envSet = unify(first, second, new EnvSet(ImmutableSet.of(globalEnv)));
+        EnvSet envSet = unify(first, second, new EnvSet(globalEnv));
         UnifyException exception = null;
         for (Environment env : envSet.evs)
         {
@@ -54,12 +55,24 @@ public class Unifier
                 exception = e;
             }
         }
-        if(ret.size() == 1)
+        EnvSet newEnvSet = new EnvSet(ImmutableSet.copyOf(ret), exception);
+        if(newEnvSet.evs.size() == 1)
         {
-            globalEnv = ret.iterator().next();
+            EnvSet oldNewEnvSet;
+            do
+            {
+                oldNewEnvSet = newEnvSet;
+                newEnvSet = improve(newEnvSet.evs.iterator().next());
+            }
+            while(!oldNewEnvSet.evs.equals(newEnvSet.evs) && newEnvSet.evs.size() == 1);
         }
-        else if(ret.size() == 0)
+        if(newEnvSet.evs.size() == 1)
         {
+            globalEnv = newEnvSet.evs.iterator().next();
+        }
+        else if(newEnvSet.evs.size() == 0)
+        {
+            exception = newEnvSet.exception;
             if(exception == null)
             {
                 exception = envSet.exception;
@@ -68,7 +81,10 @@ public class Unifier
         }
         else
         {
-            throw new IllegalStateException("Couldn't unify uniquely: " + typeToString(first) + " and " + typeToString(second));
+            //throw new IllegalStateException("Couldn't unify uniquely: " + typeToString(first) + " and " + typeToString(second));
+            // shrug
+            // FIXME: at least print a warning here
+            globalEnv = newEnvSet.evs.iterator().next();
         }
     }
 
@@ -76,7 +92,7 @@ public class Unifier
     {
         Multimap<ISExp, ISExp> lacks = HashMultimap.create(globalEnv.lacks);
         lacks.put(r, label);
-        globalEnv = new Environment(globalEnv.substitution, ImmutableMultimap.copyOf(lacks));
+        globalEnv = new Environment(globalEnv.substitution, globalEnv.equals, ImmutableMultimap.copyOf(lacks));
     }
 
     private static final class UnionException extends RuntimeException
@@ -92,12 +108,12 @@ public class Unifier
         }
     }
 
-    private enum UniqueOptionalValueOps implements DisjointMap.IValueOps<Symbol, Optional<ISExp>>
+    private enum UniqueOptionalValueOps implements DisjointMap.IValueOps<ISExp, Optional<ISExp>>
     {
         INSTANCE;
 
         @Override
-        public Optional<ISExp> makeValue(Symbol symbol)
+        public Optional<ISExp> makeValue(ISExp key)
         {
             return Optional.absent();
         }
@@ -129,6 +145,29 @@ public class Unifier
         }
     }
 
+    private enum DummyOps implements DisjointMap.IValueOps<ISExp, Void>
+    {
+        INSTANCE;
+
+        @Override
+        public Void makeValue(ISExp isExp)
+        {
+            return null;
+        }
+
+        @Override
+        public Void unionValues(Void v1, Void v2)
+        {
+            return null;
+        }
+
+        @Override
+        public Void copyValue(Void aVoid)
+        {
+            return null;
+        }
+    }
+
     private static void putSubs(DisjointMap<Symbol, Optional<ISExp>> subs, ImmutableMap<Symbol, ISExp> newSubs)
     {
         for (Map.Entry<Symbol, ISExp> entry : newSubs.entrySet())
@@ -147,9 +186,9 @@ public class Unifier
         }
     }
 
-    private void addBoundInValue(ISExp type, Set<ISExp> boundInValues)
+    private void addBoundInValue(ISExp type, Set<ISExp> boundInValues, Environment env)
     {
-        type = find(type);
+        type = env.find(type);
         if(type instanceof Symbol)
         {
             boundInValues.add(type);
@@ -165,7 +204,7 @@ public class Unifier
             while(list != Nil.INSTANCE)
             {
                 Cons cons = (Cons) list;
-                addBoundInValue(cons.car, boundInValues);
+                addBoundInValue(cons.car, boundInValues, env);
                 list = cons.cdr;
             }
         }
@@ -173,60 +212,131 @@ public class Unifier
         {
             for(Map.Entry<? extends ISExp, ? extends ISExp> entry : ((net.minecraftforge.common.plon.AST.Map) type).value.entrySet())
             {
-                addBoundInValue(entry.getKey(), boundInValues);
-                addBoundInValue(entry.getValue(), boundInValues);
+                addBoundInValue(entry.getKey(), boundInValues, env);
+                addBoundInValue(entry.getValue(), boundInValues, env);
             }
         }
     }
 
     ISExp reify(ISExp type, java.util.Map<ISExp, ISExp> newVars, ImmutableSet<ISExp> boundVarTypes)
     {
-        Set<ISExp> freeRootBuilder = Sets.newHashSet();
+        globalEnv = globalEnv.applySubstitution();
+        SubVisitor subVisitor = new SubVisitor(globalEnv.substitution);
+        type = visitType(type, subVisitor);
+        //Set<ISExp> freeRootBuilder = Sets.newHashSet();
         Set<ISExp> boundInValues = Sets.newHashSet();
-        for (Map.Entry<Symbol, Optional<ISExp>> entry : globalEnv.substitution)
+        /*for (Map.Entry<Symbol, Optional<ISExp>> entry : globalEnv.substitution)
         {
             Symbol symbol = globalEnv.substitution.find(entry.getKey()).get();
-            if(!entry.getValue().isPresent())
+            if(entry.getValue().isPresent())
             {
-                freeRootBuilder.add(symbol);
+                boundInValues.add(symbol);
             }
-        }
+        }*/
         for(ISExp bound : boundVarTypes)
         {
-            addBoundInValue(bound, boundInValues);
+            // FIXME: breaks the select example
+            addBoundInValue(bound, boundInValues, globalEnv);
         }
-        freeRootBuilder.removeAll(boundInValues);
+        boundInValues.addAll(boundVarTypes);
+        /*freeRootBuilder.removeAll(boundInValues);
         freeRootBuilder.removeAll(boundVarTypes);
-        ImmutableSet<ISExp> freeRoots = ImmutableSet.copyOf(freeRootBuilder);
-        ISExp newType = reify_do(type, newVars, freeRoots);
+        ImmutableSet<ISExp> freeRoots = ImmutableSet.copyOf(freeRootBuilder);*/
+        ReifyVisitor visitor = new ReifyVisitor(newVars, ImmutableSet.copyOf(boundInValues));
+        GatheringVisitor gVisitor = new GatheringVisitor();
+        visitType(type, gVisitor);
+        ISExp newType = visitType(type, visitor);
         Multimap<ISExp, ISExp> builder = HashMultimap.create();
         builder.putAll(globalEnv.lacks);
-        for (Map.Entry<ISExp, ISExp> entry : globalEnv.lacks.entries())
+        Set<Symbol> newUsed = Sets.newHashSet(gVisitor.used);
+        ImmutableList<Map.Entry<ISExp, Void>> oldEq = ImmutableList.copyOf(globalEnv.equals);
+        boolean changed;
+        do
         {
-            ISExp key = find(entry.getKey());
-            ISExp value = find(entry.getValue());
-            if(newVars.containsKey(key))
+            changed = false;
+            for (Map.Entry<ISExp, ISExp> entry : globalEnv.lacks.entries())
             {
-                key = newVars.get(key);
+                gVisitor.used.clear();
+                visitType(entry.getKey(), gVisitor);
+                visitType(entry.getValue(), gVisitor);
+                if (Sets.intersection(gVisitor.used, newUsed).isEmpty())
+                {
+                    builder.put(entry.getKey(), entry.getValue());
+                }
+                else
+                {
+                    if(!Sets.difference(gVisitor.used, newUsed).isEmpty())
+                    {
+                        changed = true;
+                        newUsed.addAll(gVisitor.used);
+                    }
+                    ISExp key = visitType(entry.getKey(), visitor);
+                    ISExp value = visitType(entry.getValue(), visitor);
+                    builder.put(key, value);
+                }
             }
-            if(newVars.containsKey(value))
+
+            globalEnv = new Environment(globalEnv.substitution, globalEnv.equals, ImmutableMultimap.copyOf(builder));
+
+            for (Map.Entry<ISExp, Void> entry : oldEq)
             {
-                value = newVars.get(value);
+                ISExp root = globalEnv.equals.find(entry.getKey()).get();
+                if (entry.getKey().equals(root))
+                {
+                    continue;
+                }
+
+                gVisitor.used.clear();
+                visitType(entry.getKey(), gVisitor);
+                visitType(root, gVisitor);
+                if (!Sets.intersection(gVisitor.used, newUsed).isEmpty())
+                {
+                    if(!Sets.difference(gVisitor.used, newUsed).isEmpty())
+                    {
+                        changed = true;
+                        newUsed.addAll(gVisitor.used);
+                    }
+                    ISExp e2 = visitType(root, visitor);
+                    // optimization
+                    if(entry.getKey() instanceof Symbol && e2.equals(root) && !newVars.containsKey(entry.getKey()))
+                    {
+                        continue;
+                    }
+                    ISExp e1 = visitType(entry.getKey(), visitor);
+                    if (!e1.equals(entry.getKey()) || !e2.equals(root))
+                    {
+                        // globalEnv = unifyRows(e1, e2, globalEnv);
+                        unify(prodType(e1), prodType(e2));
+                    }
+                }
             }
-            builder.put(key, value);
         }
-        globalEnv = new Environment(globalEnv.substitution, ImmutableMultimap.copyOf(builder));
+        while(changed);
         return newType;
     }
 
-    private ISExp reify_do(ISExp type, java.util.Map<ISExp, ISExp> newVars, ImmutableSet<ISExp> freeRoots)
+    ImmutableSet<Symbol> substFree()
     {
-        type = find(type);
-        if(type instanceof Symbol)
+        return globalEnv.substFree();
+    }
+
+    private class ReifyVisitor implements Function<Symbol, ISExp>
+    {
+        private final Map<ISExp, ISExp> newVars;
+        private final ImmutableSet<ISExp> boundVarTypes;
+
+        private ReifyVisitor(Map<ISExp, ISExp> newVars, ImmutableSet<ISExp> boundVarTypes)
         {
-            if(freeRoots.contains(type))
+            this.newVars = newVars;
+            this.boundVarTypes = boundVarTypes;
+        }
+
+        @Override
+        public ISExp apply(Symbol type)
+        {
+            if(!boundVarTypes.contains(type))
             {
-                if(!newVars.containsKey(type))
+                if (!newVars.containsKey(type))
                 {
                     ISExp newVar = getFreshVar();
                     newVars.put(type, newVar);
@@ -238,6 +348,15 @@ public class Unifier
             }
             return type;
         }
+    }
+
+    private static ISExp visitType(ISExp type, Function<Symbol, ISExp> symbolVisitor)
+    {
+        //type = env.find(type); // Hmm
+        if(type instanceof Symbol)
+        {
+            return symbolVisitor.apply((Symbol) type);
+        }
         if(type instanceof IList)
         {
             // don't look inside labels, there's no types there
@@ -245,7 +364,7 @@ public class Unifier
             {
                 return type;
             }
-            return reilist((IList) type, newVars, freeRoots);
+            return visitTypeList((IList) type, symbolVisitor);
         }
         if(type instanceof net.minecraftforge.common.plon.AST.Map)
         {
@@ -253,8 +372,8 @@ public class Unifier
             for(Map.Entry<? extends ISExp, ? extends ISExp> entry : ((net.minecraftforge.common.plon.AST.Map) type).value.entrySet())
             {
                 builder.put(
-                reify_do(entry.getKey(), newVars, freeRoots),
-                reify_do(entry.getValue(), newVars, freeRoots)
+                visitType(entry.getKey(), symbolVisitor),
+                visitType(entry.getValue(), symbolVisitor)
                 );
             }
         }
@@ -265,14 +384,14 @@ public class Unifier
         throw new IllegalStateException("Not a well-formed type: " + type);
     }
 
-    private IList reilist(IList args, java.util.Map<ISExp, ISExp> newVars, ImmutableSet<ISExp> freeRoots)
+    private static IList visitTypeList(IList args, Function<Symbol, ISExp> symbolVisitor)
     {
         if(args == Nil.INSTANCE)
         {
             return Nil.INSTANCE;
         }
         Cons cons = (Cons) args;
-        return new Cons(reify_do(cons.car, newVars, freeRoots), reilist(cons.cdr, newVars, freeRoots));
+        return new Cons(visitType(cons.car, symbolVisitor), visitTypeList(cons.cdr, symbolVisitor));
     }
 
     private static class UnifyException extends Exception
@@ -283,33 +402,102 @@ public class Unifier
         }
     }
 
+    private static class GatheringVisitor implements Function<Symbol, ISExp>
+    {
+        private final Set<Symbol> used = Sets.newHashSet();
+
+        @Override
+        public ISExp apply(Symbol type)
+        {
+            used.add(type);
+            return type;
+        }
+    }
+
+    private static class UsedVisitor implements Function<Symbol, ISExp>
+    {
+        private final Set<Symbol> used;
+        private boolean usedType = false;
+
+        private UsedVisitor(Set<Symbol> used)
+        {
+            this.used = used;
+        }
+
+        @Override
+        public ISExp apply(Symbol type)
+        {
+            usedType |= used.contains(type);
+            return type;
+        }
+    }
+
+    private static class SubVisitor implements Function<Symbol, ISExp>
+    {
+        private final DisjointMap<Symbol, Optional<ISExp>> subs;
+        private Symbol r;
+
+        private SubVisitor(DisjointMap<Symbol, Optional<ISExp>> subs)
+        {
+            this.subs = subs;
+        }
+
+        @Override
+        public ISExp apply(Symbol type)
+        {
+            Optional<Symbol> newType = subs.find(type);
+            if(newType.isPresent())
+            {
+                Optional<Optional<ISExp>> newValue = subs.get(type);
+                ISExp value = type;
+                if(newValue.isPresent() && newValue.get().isPresent())
+                {
+                    value = newValue.get().get();
+                }
+                else
+                {
+                    value = newType.get();
+                }
+                if(!type.equals(value) && !type.equals(r) && !(value.equals(r)))
+                {
+                    return visitType(value, this);
+                }
+            }
+            return type;
+        }
+    }
+
     private static final class Environment
     {
         private final DisjointMap<Symbol, Optional<ISExp>> substitution; // row ~ row is actually here too
-        //private final DisjointMap<Symbol, Optional<ISExp>> equals; // row ~ row
+        private final DisjointMap<ISExp, Void> equals; // row ~ row
         private final ImmutableMultimap<ISExp, ISExp> lacks; // row -> label
 
         public Environment()
         {
-            this(
-                DisjointMap.create(UniqueOptionalValueOps.INSTANCE),
-                //DisjointMap.create(ops),
-                ImmutableMultimap.<ISExp, ISExp>of());
+            this.substitution = DisjointMap.create(UniqueOptionalValueOps.INSTANCE);
+            this.equals = DisjointMap.create(DummyOps.INSTANCE);
+            this.lacks = ImmutableMultimap.<ISExp, ISExp>of();
         }
 
-        private Environment(DisjointMap<Symbol, Optional<ISExp>> substitution, /*DisjointMap<Symbol, Optional<ISExp>> equals, */ImmutableMultimap<ISExp, ISExp> lacks)
+        private Environment(DisjointMap<Symbol, Optional<ISExp>> substitution, DisjointMap<ISExp, Void> equals, ImmutableMultimap<ISExp, ISExp> lacks)
         {
             this.substitution = substitution;
-            //this.equals = equals;
+            this.equals = equals;
             this.lacks = lacks;
         }
 
-        public Environment(ImmutableMap<Symbol, ISExp> substitution, /*ImmutableMap<Symbol, ISExp> equals, */ImmutableSet<Pair<ISExp, ISExp>> lacks)
+        private Environment(ImmutableMap<Symbol, ISExp> substitution, ImmutableMap<ISExp, ISExp> equals, ImmutableSet<Pair<ISExp, ISExp>> lacks)
         {
             this.substitution = DisjointMap.create(UniqueOptionalValueOps.INSTANCE);
             putSubs(this.substitution, substitution);
-            //this.equals = DisjointMap.create(ops);
-            //putSubs(this.equals, equals);
+            this.equals = DisjointMap.create(DummyOps.INSTANCE);
+            for (Map.Entry<ISExp, ISExp> entry : equals.entrySet())
+            {
+                this.equals.makeSet(entry.getKey());
+                this.equals.makeSet(entry.getValue());
+                this.equals.union(entry.getKey(), entry.getValue());
+            }
             ImmutableMultimap.Builder<ISExp, ISExp> builder = ImmutableMultimap.builder();
             for (Pair<ISExp, ISExp> pair : lacks)
             {
@@ -318,35 +506,57 @@ public class Unifier
             this.lacks = builder.build();
         }
 
-        public Environment(ImmutableMap<Symbol, ISExp> substitution)
+        private static Environment fromSub(Symbol from, ISExp to)
         {
-            this(substitution, /*ImmutableMap.<Symbol, ISExp>of(), */ImmutableSet.<Pair<ISExp, ISExp>>of());
+            return new Environment(ImmutableMap.of(from, to), ImmutableMap.<ISExp, ISExp>of(), ImmutableSet.<Pair<ISExp, ISExp>>of());
+        }
+
+        private static Environment fromEq(ISExp from, ISExp to)
+        {
+            return new Environment(ImmutableMap.<Symbol, ISExp>of(), ImmutableMap.of(from, to), ImmutableSet.<Pair<ISExp, ISExp>>of());
         }
 
         Environment mergeWith(Environment env) throws UnifyException
         {
             DisjointMap<Symbol, Optional<ISExp>> newS = substitution.copy();
-            for (Map.Entry<Symbol, Optional<ISExp>> entry : env.substitution)
+            for (Map.Entry<Symbol, Symbol> entry : env.substitution.pairs())
             {
-                Symbol root = env.substitution.find(entry.getKey()).get();
                 newS.makeSet(entry.getKey());
-                newS.makeSet(root);
+                newS.makeSet(entry.getValue());
                 try
                 {
-                    newS.union(entry.getKey(), root);
-                    newS.set(root, entry.getValue());
+                    newS.union(entry.getKey(), entry.getValue());
+                    newS.set(entry.getKey(), env.substitution.get(entry.getKey()).get());
                 }
                 catch (UnionException e)
                 {
-                    throw new UnifyException("Couldn't make equivalent: " + typeToString(entry.getKey(), env) + " and " + typeToString(root, this));
+                    throw new UnifyException("Couldn't make equivalent: " + typeToString(entry.getKey(), env) + " and " + typeToString(entry.getValue(), this));
                 }
             }
-            //DisjointMap<Symbol, Optional<ISExp>> newE = equals.copy();
-            //newE.addAll(env.equals);
+            DisjointMap<ISExp, Void> newE = equals.copy();
+            for (Map.Entry<ISExp, ISExp> entry : env.equals.pairs())
+            {
+                newE.makeSet(entry.getKey());
+                newE.makeSet(entry.getValue());
+                if(entry.getKey().equals(entry.getValue()))
+                {
+                    continue;
+                }
+                try
+                {
+                    newE.union(entry.getKey(), entry.getValue());
+                    // value is null, not setting explicitly
+                }
+                catch (UnionException e)
+                {
+                    // FIXME
+                    throw new UnifyException("Couldn't make equivalent: " + typeToString(entry.getKey(), env) + " and " + typeToString(entry.getValue(), this));
+                }
+            }
             Multimap<ISExp, ISExp> newLacks = HashMultimap.create();
             newLacks.putAll(lacks);
             newLacks.putAll(env.lacks);
-            Environment newEnv = new Environment(newS, /*newE, */ImmutableMultimap.copyOf(newLacks));
+            Environment newEnv = new Environment(newS, newE, ImmutableMultimap.copyOf(newLacks));
             newEnv.checkLacks();
             return newEnv;
         }
@@ -383,6 +593,146 @@ public class Unifier
             // otherwise can't check the constraint at this time
         }
 
+        Environment trimUselessPredicates()
+        {
+            GatheringVisitor visitor = new GatheringVisitor();
+            for (Map.Entry<Symbol, Optional<ISExp>> entry : substitution)
+            {
+                visitType(entry.getKey(), visitor);
+                if(entry.getValue().isPresent())
+                {
+                    visitType(entry.getValue().get(), visitor);
+                }
+            }
+
+            UsedVisitor usedVisitor = new UsedVisitor(visitor.used);
+
+            DisjointMap<ISExp, Void> newEq = DisjointMap.create(DummyOps.INSTANCE);
+
+            for (Map.Entry<ISExp, Void> entry : equals)
+            {
+                ISExp r1 = entry.getKey();
+                ISExp r2 = equals.find(r1).get();
+                usedVisitor.usedType = false;
+                visitType(r1, usedVisitor);
+                boolean r1Used = usedVisitor.usedType;
+                usedVisitor.usedType = false;
+                visitType(r2, usedVisitor);
+                boolean r2Used = usedVisitor.usedType;
+                if(r1Used && r2Used)
+                {
+                    newEq.makeSet(r1);
+                    newEq.makeSet(r2);
+                    newEq.union(r1, r2);
+                }
+            }
+
+            Multimap<ISExp, ISExp> newLacks = HashMultimap.create();
+
+            for (Map.Entry<ISExp, ISExp> entry : lacks.entries())
+            {
+                usedVisitor.usedType = false;
+                visitType(entry.getKey(), usedVisitor);
+                boolean rUsed = usedVisitor.usedType;
+                usedVisitor.usedType = false;
+                visitType(entry.getValue(), usedVisitor);
+                boolean lUsed = usedVisitor.usedType;
+                if(rUsed && lUsed)
+                {
+                    newLacks.put(entry.getKey(), entry.getValue());
+                }
+            }
+
+            return new Environment(substitution.copy(), newEq, ImmutableMultimap.copyOf(newLacks));
+        }
+
+        Environment applySubstitution()
+        {
+            DisjointMap<ISExp, Void> newEq = DisjointMap.create(DummyOps.INSTANCE);
+
+            SubVisitor visitor = new SubVisitor(substitution);
+
+            for (Map.Entry<ISExp, Void> entry : equals)
+            {
+                ISExp r1 = entry.getKey();
+                ISExp r2 = equals.find(r1).get();
+                if(!r1.equals(r2))
+                {
+                    if(r1 instanceof Symbol)
+                    {
+                        visitor.r = (Symbol) r1;
+                    }
+                    else if(r2 instanceof Symbol)
+                    {
+                        visitor.r = (Symbol) r2;
+                    }
+                    ISExp newR1 = visitType(r1, visitor);
+                    ISExp newR2 = visitType(r2, visitor);
+                    newR1 = sortRow(newR1);
+                    newR2 = sortRow(newR2);
+                    newEq.makeSet(newR1);
+                    newEq.makeSet(newR2);
+                    newEq.union(newR1, newR2);
+                }
+            }
+
+            visitor.r = null;
+            Multimap<ISExp, ISExp> builder = HashMultimap.create();
+
+            for (Map.Entry<ISExp, ISExp> entry : lacks.entries())
+            {
+                ISExp r = visitType(entry.getKey(), visitor);
+                ISExp l = visitType(entry.getValue(), visitor);
+                builder.put(r, l);
+            }
+
+            ImmutableMultimap<ISExp, ISExp> newLacks = ImmutableMultimap.copyOf(builder);
+            if(newEq.equals(equals) && newLacks.equals(lacks))
+            {
+                return this;
+            }
+            return new Environment(substitution.copy(), newEq, newLacks);
+        }
+
+        private ImmutableSet<Symbol> substFree()
+        {
+            Set<Symbol> bound = Sets.newHashSet();
+            Set<Symbol> used = Sets.newHashSet();
+
+            UsedVisitor visitor = new UsedVisitor(used);
+
+            for (Map.Entry<Symbol, Optional<ISExp>> entry : substitution)
+            {
+                visitType(entry.getKey(), visitor);
+                if(entry.getValue().isPresent())
+                {
+                    visitType(entry.getValue().get(), visitor);
+                }
+                Symbol s1 = entry.getKey();
+                Symbol s2 = substitution.find(s1).get();
+                if(!s1.equals(s2))
+                {
+                    bound.add(s1);
+                }
+            }
+
+            /*for (Map.Entry<ISExp, Void> entry : equals)
+            {
+                ISExp r1 = entry.getKey();
+                ISExp r2 = equals.find(r1).get();
+                visitType(r1, visitor);
+                visitType(r2, visitor);
+            }
+
+            for (Map.Entry<ISExp, ISExp> entry : lacks.entries())
+            {
+                visitType(entry.getKey(), visitor);
+                visitType(entry.getValue(), visitor);
+            }*/
+
+            return Sets.difference(used, bound).immutableCopy();
+        }
+
         public ISExp find(ISExp exp)
         {
             if(exp instanceof Symbol)
@@ -410,13 +760,31 @@ public class Unifier
             if (o == null || getClass() != o.getClass()) return false;
             Environment that = (Environment) o;
             return com.google.common.base.Objects.equal(substitution, that.substitution) &&
+            Objects.equal(equals, that.equals) &&
             Objects.equal(lacks, that.lacks);
         }
 
         @Override
         public int hashCode()
         {
-            return Objects.hashCode(substitution, lacks);
+            return Objects.hashCode(substitution, equals, lacks);
+        }
+
+        public boolean equal(ISExp r1, ISExp r2)
+        {
+            r1 = find(r1);
+            r2 = find(r2);
+            if(r1.equals(r2))
+            {
+                return true;
+            }
+            if(r1 instanceof Cons && r2 instanceof Cons)
+            {
+                Cons c1 = (Cons) r1;
+                Cons c2 = (Cons) r2;
+                return equal(c1.car, c2.car) && equal(c1.cdr, c2.cdr);
+            }
+            return false;
         }
     }
 
@@ -455,75 +823,6 @@ public class Unifier
             }
             return new EnvSet(ImmutableSet.copyOf(set));
         }
-
-        /*public Iterator<ImmutableList<Environment>> iterator()
-        {
-            return new Iterator<ImmutableList<Environment>>()
-            {
-                private ImmutableList<Environment> last = null;
-
-                private final List<Iterator<Environment>> is = Lists.transform(evProduct, new Function<ImmutableSet<Environment>, Iterator<Environment>>()
-                {
-                    public Iterator<Environment> apply(ImmutableSet<Environment> env)
-                    {
-                        return env.iterator();
-                    }
-                });
-
-                public boolean hasNext()
-                {
-                    return Iterables.any(is, new Predicate<Iterator>() {
-                        public boolean apply(Iterator input)
-                        {
-                            return input.hasNext();
-                        }
-                    });
-                }
-
-                @Override
-                public ImmutableList<Environment> next()
-                {
-                    if(last == null)
-                    {
-                        last = ImmutableList.<Environment>of(Iterables.<Iterator<Environment>, Environment>transform(is, new Function<Iterator<Environment>, Environment>()
-                        {
-                            public Environment apply(Iterator<Environment> input)
-                            {
-                                return input.next();
-                            }
-                        }));
-                        return last;
-                    }
-                    else
-                    {
-                        ImmutableList.Builder<Environment> builder = ImmutableList.builder();
-                        boolean incremented = false;
-                        for (int i = 0; i < last.size(); i++)
-                        {
-                            if(!incremented && !is.get(i).hasNext())
-                            {
-                                Iterator<Environment> it = evProduct.get(i).iterator();
-                                is.set(i, it);
-                                builder.add(it.next());
-                                incremented = true;
-                            }
-                            else
-                            {
-                                builder.add(last.get(i));
-                            }
-                        }
-                        last = builder.build();
-                        return last;
-                    }
-                }
-
-                @Override
-                public void remove()
-                {
-                    throw new UnsupportedOperationException();
-                }
-            };
-        }*/
     }
 
     // flatMap
@@ -560,11 +859,11 @@ public class Unifier
         final ISExp secondLink = env.find(second);
         if (firstLink instanceof Symbol)
         {
-            return union((Symbol) firstLink, second, env);
+            return union((Symbol) firstLink, secondLink, env);
         }
         else if (secondLink instanceof Symbol)
         {
-            return union((Symbol) secondLink, first, env);
+            return union((Symbol) secondLink, firstLink, env);
         }
         /*else if(firstLink instanceof Cons && length(firstLink) == 3 && secondLink instanceof IMap)
         {
@@ -589,25 +888,27 @@ public class Unifier
                 String name = ((StringAtom) firstCons.car).value;
                 if (name.equals("{}"))
                 {
+                    throw new IllegalStateException("unify called on a row.");
                     // record unification
                     // {} == {}
-                    if (length(firstCons.cdr) == 1 && length(secondCons.cdr) == 1)
+                    /*if (length(firstCons.cdr) == 0 && length(secondCons.cdr) == 0)
                     {
                         return new EnvSet(env);
                     }
                     if (length(firstCons) == 4)
                     {
-                        Cons c1 = (Cons) firstCons.cdr;
+                        return new EnvSet(env.mergeWith(Environment.fromEq(firstLink, secondLink)));
+                        /*Cons c1 = (Cons) firstCons.cdr;
                         Cons c2 = (Cons) c1.cdr;
                         Cons c3 = (Cons) c2.cdr;
                         ISExp lLink = env.find(c1.car);
-                        return unifyRows(lLink, c2.car, c3.car, secondLink, env);
+                        return unifyRows(lLink, c2.car, c3.car, secondLink, env);*/
                         /*if(!(lLink instanceof Symbol))
                         {
                             ISExp r2 = insert(lLink, c2.car, secondLink);
                             unify(c3.car, r2);
                             return;
-                        }*/
+                        }* /
                     }
                     /*if(length(secondCons) == 4)
                     {
@@ -629,6 +930,16 @@ public class Unifier
                     {
                         return new EnvSet(env);
                     }
+                }
+                else if(name.equals("*") || name.equals("+"))
+                {
+                    if(length(firstCons) == 2 && length(secondCons) == 2 && firstCons.car.equals(secondCons.car))
+                    {
+                        ISExp r1 = ((Cons) firstCons.cdr).car;
+                        ISExp r2 = ((Cons) secondCons.cdr).car;
+                        return new EnvSet(env.mergeWith(Environment.fromEq(r1, r2)));
+                    }
+                    throw new UnifyException("Type error: can't product/sum: " + typeToString(firstLink, env) + " and " + typeToString(secondLink, env));
                 }
                 else // normal constructor
                 {
@@ -671,34 +982,107 @@ public class Unifier
         throw new UnifyException("Type error: can't unify " + typeToString(firstLink, env) + " and " + typeToString(secondLink, env));
     }
 
-    /*private ImmutableSet<Environment> mergeSubs(ImmutableSet<Environment> evs, final Environment newEnv)
+    private EnvSet improve(Environment env)
     {
-        return ImmutableSet.copyOf(Collections2.transform(evs, new Function<ImmutableMap<Symbol, ISExp>, ImmutableMap<Symbol, ISExp>>()
+        ImmutableSet<Environment> envSet = ImmutableSet.of(env);
+        UnifyException exception = null;
+        //for(int i = 0; i < 3; i++)
         {
-            public ImmutableMap<Symbol, ISExp> apply(ImmutableMap<Symbol, ISExp> input)
+            for (Map.Entry<ISExp, ISExp> entry : env.equals.pairs())
             {
-                java.util.Map<Symbol, ISExp> map = Maps.newHashMap(input);
-                for(java.util.Map.Entry<Symbol, ISExp> entry : newEnv.entrySet())
+                ISExp r1 = entry.getKey();
+                ISExp r2 = entry.getValue();
+                if (r1.equals(r2))
                 {
-                    if(map.containsKey(entry.getKey()))
+                    continue;
+                }
+                Set<Environment> set = Sets.newHashSet();
+                for (Environment e : envSet)
+                {
+                    EnvSet newEvs = unifyRows(r1, r2, e);
+                    if (newEvs.evs.isEmpty())
                     {
-                        if(!map.get(entry.getKey()).equals(entry.getValue()))
+                        exception = newEvs.exception;
+                    }
+                    for (Environment ev : newEvs.evs)
+                    {
+                        try
                         {
-                            throw new IllegalStateException("Conflicting mappings: " + entry.getKey() + " -> " + map.get(entry.getKey()) + ", " + entry.getValue());
+                            ev.checkLacks();
+                            //ev = ev.trimUselessPredicates();
+                            set.add(ev);
+                        } catch (UnifyException e1)
+                        {
+                            exception = e1;
                         }
                     }
-                    else
-                    {
-                        map.put(entry.getKey(), entry.getValue());
-                    }
                 }
-                return ImmutableMap.copyOf(map);
+                envSet = ImmutableSet.copyOf(set);
             }
-        }));
-    }*/
+        }
+        return new EnvSet(envSet, exception);
+    }
+
+    private EnvSet unifyRows(ISExp r1, ISExp r2, Environment env)
+    {
+        r1 = env.find(r1);
+        r2 = env.find(r2);
+        if(env.equal(r1, r2))
+        {
+            return new EnvSet(env);
+        }
+        if (r1 instanceof Symbol && r2 instanceof Symbol)
+        {
+            try
+            {
+                return union((Symbol) r1, r2, env);
+            }
+            catch (UnifyException e1)
+            {
+                ISExp first = env.find(r1);
+                ISExp second = env.find(r2);
+                return unifyRows(first, second, env);
+            }
+        }
+        else
+        {
+            if(r1 instanceof Symbol)
+            {
+                ISExp t = r1;
+                r1 = r2;
+                r2 = t;
+            }
+            Cons c0 = (Cons) r1;
+            if(c0.cdr == Nil.INSTANCE)
+            {
+                if(r1.equals(r2))
+                {
+                    return new EnvSet(env);
+                }
+                if(!(r2 instanceof Symbol))
+                {
+                    return new EnvSet(new UnifyException("Can't unify rows: " + typeToString(r1, env) + " and " + typeToString(r2, env)));
+                }
+                try
+                {
+                    return union((Symbol) r2, r1, env);
+                }
+                catch (UnifyException e)
+                {
+                    return new EnvSet(e);
+                }
+            }
+            Cons c1 = (Cons) c0.cdr;
+            Cons c2 = (Cons) c1.cdr;
+            Cons c3 = (Cons) c2.cdr;
+            ISExp lLink = env.find(c1.car);
+            return unifyRows(lLink, c2.car, c3.car, r2, env);
+        }
+    }
 
     private EnvSet unifyRows(ISExp l, ISExp t, ISExp r, ISExp s, Environment env)
     {
+
         ImmutableSet.Builder<Environment> builder = ImmutableSet.builder();
         ImmutableSet<Pair<Environment, ISExp>> inserters = null;
         try
@@ -716,7 +1100,7 @@ public class Unifier
             try
             {
                 Environment newEnv = env.mergeWith(inserter.getLeft());
-                EnvSet unifiers = unify(r, s_l, newEnv);
+                EnvSet unifiers = unifyRows(r, s_l, newEnv);
                 builder.addAll(unifiers.evs);
             }
             catch (UnifyException e)
@@ -741,7 +1125,7 @@ public class Unifier
                 return ImmutableSet.of();
             }
             final ISExp ra = makeRow(l, t, B);
-            return ImmutableSet.of(Pair.of(env.mergeWith(new Environment(ImmutableMap.of(A, ra))), B));
+            return ImmutableSet.of(Pair.of(env.mergeWith(Environment.fromSub(A, ra)), B));
         }
         if(length(rLink) == 1)
         {
@@ -754,9 +1138,16 @@ public class Unifier
         ISExp l1 = c2.car;
         ISExp t1 = c3.car;
         ISExp r1 = c4.car;
+        ISExp label1 = env.find(l);
+        ISExp label2 = env.find(l1);
         ImmutableSet<Pair<Environment, ISExp>> inserters;
         UnifyException exception = null;
-        try
+        // TODO: check if this is the only case in which we should stop
+        if(!(label1 instanceof Symbol) && label1.equals(label2))
+        {
+            inserters = ImmutableSet.of();
+        }
+        else try
         {
             inserters = insert(l, t, r1, env);
         }
@@ -800,11 +1191,13 @@ public class Unifier
     {
         if(l1 instanceof Symbol)
         {
-            return unify(t1, t2, env.mergeWith(new Environment(ImmutableMap.of((Symbol) l1, l2))));
+            // FIXME: eq?
+            return unify(t1, t2, env.mergeWith(Environment.fromSub((Symbol) l1, l2)));
         }
         if(l2 instanceof Symbol)
         {
-            return unify(t1, t2, env.mergeWith(new Environment(ImmutableMap.of((Symbol) l2, l1))));
+            // FIXME: eq?
+            return unify(t1, t2, env.mergeWith(Environment.fromSub((Symbol) l2, l1)));
         }
         else if(l1.equals(l2)) // TODO: good enough equality?
         {
@@ -867,29 +1260,6 @@ public class Unifier
         throw new IllegalStateException("Type error: can't insert " + typeToString(l, typeMap) + " : " + typeToString(t, typeMap) + " into " + typeToString(rLink, typeMap));
     }*/
 
-    // TODO: rethink this and disjoint set
-    /*ISExp find(ISExp type)
-    {
-        if(type instanceof Symbol)
-        {
-            Symbol var = (Symbol) type;
-            if (boundVars.containsKey(var))
-            {
-                ISExp to = boundVars.get(var);
-                if(!type.equals(to))
-                {
-                    ISExp root = find(to);
-                    if (to != root)
-                    {
-                        boundVars.put(var, root);
-                    }
-                    return root;
-                }
-            }
-        }
-        return type;
-    }*/
-
     private boolean occurs(Symbol type, ISExp other)
     {
         ISExp link = globalEnv.find(other);
@@ -920,14 +1290,14 @@ public class Unifier
         {
             if(!occurs(type, other))
             {
-                return new EnvSet(env.mergeWith(new Environment(ImmutableMap.of(type, other))));
+                return new EnvSet(env.mergeWith(Environment.fromSub(type, other)));
                 // manually creating it cause it might be complex
                 /*union.makeSet(other);
                 union.union(type, other);
                 // TODO: check
                 boundVars.put(type, other);*/
             }
-            return new EnvSet(new UnifyException("Occurs: " + type + " in " + other));
+            return new EnvSet(new UnifyException("Occurs: " + typeToString(type, env) + " in " + typeToString(other, env)));
             //ImmutableMap<ISExp, ISExp> typeMap = buildTypeMap();
             //throw new IllegalStateException("recursive type: " + typeToString(type, typeMap) + " = " + typeToString(other, typeMap));
         }
@@ -985,27 +1355,32 @@ public class Unifier
         return typeToString(type, globalEnv);
     }
 
-    private static String rowToString(ISExp row, Environment env, boolean first)
+    private static String rowToString(ISExp row, Environment env, boolean first, int ident)
     {
         row = env.find(row);
+        String r = "\n" + StringUtils.repeat(' ', ident * 2);
         if(row instanceof Symbol)
         {
-            return " | " + typeToString(row, env);
+            if(!first)
+            {
+                r += "| ";
+            }
+            return r + typeToString(row, env, ident);
         }
         if(length(row) == 1) return "";
         Cons c1 = (Cons) row;
         Cons c2 = (Cons) c1.cdr;
         Cons c3 = (Cons) c2.cdr;
         Cons c4 = (Cons) c3.cdr;
-        String r = "";
-        if(!first)
-        {
-            r = ", ";
-        }
-        return r + typeToString(c2.car, env) + " = " + typeToString(c3.car, env) + rowToString(c4.car, env, false);
+        return r + typeToString(c2.car, env, ident) + " = " + typeToString(c3.car, env, ident) + rowToString(c4.car, env, false, ident);
     }
 
     public static String typeToString(ISExp type, Environment env)
+    {
+        return typeToString(type, env, 0);
+    }
+
+    public static String typeToString(ISExp type, Environment env, int ident)
     {
         type = env.find(type);
         if(type instanceof StringAtom)
@@ -1027,19 +1402,23 @@ public class Unifier
             {
                 return "{ }";
             }
-            return "{ " + rowToString(cons, env, true) + " }";
+            return "{" + rowToString(cons, env, true, ident + 1) + "\n" + StringUtils.repeat(' ', ident * 2) + "}";
         }
         else if(cons.car.equals(makeString("label")))
         {
+            if(isStringLabelExp(cons))
+            {
+                return "\"" + sugarLabel(cons) + "\"";
+            }
             return "[label: " + ((Cons) cons.cdr).car + "]";
         }
         else if(cons.car.equals(makeString("*")))
         {
-            return "Prod { " + rowToString(((Cons) cons.cdr).car, env, true) + " }";
+            return "Prod " + typeToString(((Cons) cons.cdr).car, env, ident);
         }
         else if(cons.car.equals(makeString("+")))
         {
-            return "Sum { " + rowToString(((Cons) cons.cdr).car, env, true) + " }";
+            return "Sum " + typeToString(((Cons) cons.cdr).car, env, ident);
         }
         else if(cons.car.equals(makeString("->")))
         {
@@ -1077,17 +1456,17 @@ public class Unifier
             while(args != Nil.INSTANCE)
             {
                 Cons c2 = (Cons) args;
-                r += typeToString(c2.car, env);
+                r += typeToString(c2.car, env, ident);
                 if(c2.cdr != Nil.INSTANCE)
                 {
                     r += ", ";
                 }
                 args = c2.cdr;
             }
-            r += ") -> " + typeToString(c1.car, env) + ")";
+            r += ") -> " + typeToString(c1.car, env, ident) + ")";
             return r;
         }
-        throw new UnsupportedOperationException();
+        throw new UnsupportedOperationException("typeToString: " + type);
     }
 
     /*public void copyConstraints(ISExp type, ISExp newVar)

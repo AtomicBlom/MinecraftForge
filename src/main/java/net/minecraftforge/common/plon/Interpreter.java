@@ -1,10 +1,9 @@
 package net.minecraftforge.common.plon;
 
 import com.google.common.base.Function;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Maps;
+import com.google.common.collect.*;
+
+import java.util.Set;
 
 import static net.minecraftforge.common.plon.AST.*;
 
@@ -634,7 +633,21 @@ public abstract class Interpreter<State, Result>
             {
                 throw new IllegalStateException("Undefined variable type " + symbol);
             }
-            ISExp newType = unifier.reify(type, Maps.<ISExp, ISExp>newHashMap(), boundVarTypes);
+            Set<ISExp> set = Sets.newHashSet();
+            IList list = env;
+            while(list != Nil.INSTANCE)
+            {
+                Cons cons = (Cons) list;
+                Map map = (Map) cons.car;
+                set.addAll(map.value.values());
+                list = cons.cdr;
+            }
+            if(!boundVarTypes.contains(type))
+            {
+                // remove only from bind env
+                set.remove(type);
+            }
+            ISExp newType = unifier.reify(type, Maps.<ISExp, ISExp>newHashMap(), ImmutableSet.copyOf(set));
             //System.out.println("lookup-reify: " + symbol + " | " + unifier.typeToString(type) + " | " + unifier.typeToString(newType));
             return newType;
         }
@@ -727,11 +740,10 @@ public abstract class Interpreter<State, Result>
             ISExp cns = emptyRow();
             for(java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : map.value.entrySet())
             {
-                // TODO: label eval?
-                cns = makeRow(labelType(entry.getKey()), eval(entry.getValue(), env, boundVarTypes), cns);
+                cns = makeRow(eval(entry.getKey(), env, boundVarTypes), eval(entry.getValue(), env, boundVarTypes), cns);
             }
             ISExp ret = unifier.getFreshVar();
-            unifier.unify(ret, cns);
+            unifier.unify(prodType(ret), prodType(cns));
             return prodType(ret);
         }
 
@@ -750,9 +762,19 @@ public abstract class Interpreter<State, Result>
             }
             IList newContext = new Cons(new Map(ImmutableMap.copyOf(ctxBuilder)), context);
             ImmutableSet<ISExp> newBoundVarTypes = builder.build();
+            /*for (java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : frame.value.entrySet())
+            {
+                ISExp symbol = ctxBuilder.get(entry.getKey());
+                Set<ISExp> bound = Sets.newHashSet(newBoundVarTypes);
+                bound.remove(symbol);
+                unifier.setBound((Symbol) symbol, ImmutableSet.copyOf(bound));
+                // lalala everything is broken
+                ImmutableSet<Symbol> substFree = unifier.substFree();
+            }*/
             for (java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : frame.value.entrySet())
             {
-                unifier.unify(ctxBuilder.get(entry.getKey()), unlabelType(entry.getValue(), newContext, newBoundVarTypes));
+                // Hmm
+                unifier.unify(ctxBuilder.get(entry.getKey()), unlabelType(entry.getValue(), newContext, boundVarTypes));
                 //inferBindPair(ctxBuilder, context, vars, entry.getKey(), entry.getValue());
             }
             return newContext;

@@ -15,14 +15,14 @@ public class DisjointMap<A, V> implements Iterable<Map.Entry<A, V>>
 {
     private final Map<A, Pair<Optional<A>, Integer>> data = Maps.newHashMap();
     private final Map<A, V> rootToValue = Maps.newHashMap();
-    private final IValueOps<A, V> ops;
+    private final IValueOps<? super A, V> ops;
 
-    public static <A, V> DisjointMap<A, V> create(IValueOps<A, V> ops)
+    public static <A, V> DisjointMap<A, V> create(IValueOps<? super A, V> ops)
     {
         return new DisjointMap<A, V>(ops);
     }
 
-    protected DisjointMap(IValueOps<A, V> ops)
+    protected DisjointMap(IValueOps<? super A, V> ops)
     {
         this.ops = ops;
     }
@@ -48,16 +48,21 @@ public class DisjointMap<A, V> implements Iterable<Map.Entry<A, V>>
     {
         if(data.containsKey(a))
         {
-            Pair<Optional<A>, Integer> pair = data.get(a);
-            if(pair.getLeft() == Optional.absent())
-            {
-                return Optional.of(a);
-            }
-            A root = find(pair.getKey().get()).get();
-            data.put(a, Pair.of(Optional.of(root), pair.getRight()));
-            return Optional.of(root);
+            return Optional.of(findUnsafe(a));
         }
         return Optional.absent();
+    }
+
+    private A findUnsafe(A a)
+    {
+        Pair<Optional<A>, Integer> pair = data.get(a);
+        if(pair.getLeft() == Optional.absent())
+        {
+            return a;
+        }
+        A root = findUnsafe(pair.getKey().get());
+        data.put(a, Pair.of(Optional.of(root), pair.getRight()));
+        return root;
     }
 
     public Optional<V> get(A a)
@@ -141,7 +146,7 @@ public class DisjointMap<A, V> implements Iterable<Map.Entry<A, V>>
         ImmutableMultimap.Builder<A, A> rootBuilder = ImmutableMultimap.builder();
         for (Map.Entry<A, Pair<Optional<A>, Integer>> entry : data.entrySet())
         {
-            rootBuilder.put(find(entry.getKey()).get(), entry.getKey());
+            rootBuilder.put(findUnsafe(entry.getKey()), entry.getKey());
         }
         ImmutableMultimap<A, A> rootMap = rootBuilder.build();
         ImmutableMap.Builder<A, ImmutableSet<A>> builder = ImmutableMap.builder();
@@ -174,12 +179,23 @@ public class DisjointMap<A, V> implements Iterable<Map.Entry<A, V>>
         {
             public Map.Entry<A, V> apply(Map.Entry<A, Pair<Optional<A>, Integer>> input)
             {
-                return new AbstractMap.SimpleEntry<A, V>(input.getKey(), rootToValue.get(find(input.getKey()).get()));
+                return new AbstractMap.SimpleEntry<A, V>(input.getKey(), rootToValue.get(findUnsafe(input.getKey())));
             }
         });
     }
 
-    public void addAll(DisjointMap<A, V> other)
+    public Iterable<Map.Entry<A, A>> pairs()
+    {
+        return Iterables.transform(data.entrySet(), new Function<Map.Entry<A,Pair<Optional<A>,Integer>>, Map.Entry<A, A>>()
+        {
+            public Map.Entry<A, A> apply(Map.Entry<A, Pair<Optional<A>, Integer>> input)
+            {
+                return new AbstractMap.SimpleEntry<A, A>(input.getKey(), findUnsafe(input.getKey()));
+            }
+        });
+    }
+
+    /*public void addAll(DisjointMap<A, V> other)
     {
         // TODO: make more efficient?
         for (Map.Entry<A, V> entry : other)
@@ -190,7 +206,7 @@ public class DisjointMap<A, V> implements Iterable<Map.Entry<A, V>>
             union(entry.getKey(), root);
             set(root, entry.getValue());
         }
-    }
+    }*/
 
     public static interface IValueOps<A, V>
     {
