@@ -45,7 +45,7 @@
       {
         ":name": "#clip_name",
         ":time": "#time",
-        ":triggers": ["#mcons", "#name", ["#cons2", "#parameter", ["#cons2", "#event", "#nil2"]], "#triggers"]
+        ":triggers": ["#mcons", "#name", ["#list", "#parameter", "#event"], "#triggers"]
       }
     ]
   ],
