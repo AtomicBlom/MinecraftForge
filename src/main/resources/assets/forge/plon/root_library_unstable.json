@@ -1,16 +1,26 @@
 {
-  "#nil2": ["#or", ":cons", ["#eq", ":nil", {}]],
-  "#cons2": ["#lambda", ["#car", "#cdr"], ["#or", ":nil", ["#eq", ":cons", { ":car": "#car", ":cdr": "#cdr" }]]],
+  /*"#nil": ["#or", ":cons", ["#eq", ":nil", {}]],
+  "#cons": ["#lambda", ["#car", "#cdr"], ["#or", ":nil", ["#eq", ":cons", { ":car": "#car", ":cdr": "#cdr" }]]],*/
 
-  "#car2": ["#lambda", ["#r", "#d"], ["#has", ":cons", "#r",
+  "#car": ["#lambda", ["#r", "#d"], ["#has", ":cons", "#r",
     ["#lambda", ["#cons"], ["#mcar", "#cons", ":car"]],
     ["#lambda", ["#r"], "#d"]
   ]],
 
-  "#cdr2": ["#lambda", ["#r", "#d"], ["#has", ":cons", "#r",
-    ["#lambda", ["#cons"], ["#mcar", "#cons", ":car"]],
+  "#cdr": ["#lambda", ["#r", "#d"], ["#has", ":cons", "#r",
+    ["#lambda", ["#cons"], ["#mcar", "#cons", ":cdr"]],
     ["#lambda", ["#r"], "#d"]
   ]],
+
+  "#fold": ["#lambda", ["#f", "#s", "#l"], ["#case", "#l", {
+    ":nil": ["#lambda", ["#r"], "#s"],
+    ":cons": ["#lambda", ["#r"], ["#f",
+      ["#mcar", "#r", ":car"],
+      ["#fold", "#f", "#s", ["#mcar", "#r", ":cdr"]]
+    ]]
+  }]],
+
+  "#length": ["#lambda", ["#l"], ["#fold", ["#lambda", ["#x", "#r"], ["+", "#r", 1]], 0, "#l"]],
 
   "#model_clip_aux": ["#lambda",
     ["#name"],
@@ -53,7 +63,7 @@
   "#range": ["#lambda", ["#f", "#g"], ["-", "#g", "#f"]],
 
   // A -> (() -> A)
-  "#delay": ["#macro", ["#A", ["#A"]], ["#v"], ["#list", ["#quote", "#lambda"], [], "#v"]]
+  "#delay": ["#macro", ["#V", ["#V"]], ["#v"], ["#list", ["#quote", "#lambda"], [], "#v"]]
 
   // map -> (() -> map)
   /*"#delay_values": ["#macro", [" map", [" map"]], ["#m"], ["#list", ["#quote", "#mfold"], ["#quote", ["#lambda", ["#r", "#k", "#v"], ["#mcons", "#k", ["#delay", "#v"], "#r"]]], {}, "#m"]],

@@ -71,7 +71,7 @@ public enum Glue implements IResourceManagerReloadListener
             }
 
             @Override
-            public ISExp apply(IList args)
+            public ISExp apply(Interpreter.Evaluator eval, IList args)
             {
                 if (length(args) != 1)
                 {
@@ -156,7 +156,7 @@ public enum Glue implements IResourceManagerReloadListener
             return "&user[" + name + "]";
         }
 
-        public ISExp apply(IList args)
+        public ISExp apply(Interpreter.Evaluator eval, IList args)
         {
             if (length(args) != 1)
             {

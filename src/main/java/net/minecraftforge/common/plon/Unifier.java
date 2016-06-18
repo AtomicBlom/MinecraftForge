@@ -24,11 +24,40 @@ public class Unifier
     //private final java.util.Map<Symbol, ISExp> boundVars = Maps.newHashMap();
     //private final Multimap<ISExp, ISExp> constraints = HashMultimap.create();
     private int nextVar = 0;
-    ISExp getFreshVar()
+    private int nextRow = 0;
+    private int nextLab = 0;
+
+    ISExp getFreshFrom(Symbol S)
     {
-        ISExp symbol = makeSymbol(("T" + nextVar++).intern());
+        switch(S.value.charAt(0))
+        {
+            case 'V': return getFreshVar();
+            case 'R': return getFreshVar();
+            case 'L': return getFreshVar();
+        }
+        throw new IllegalStateException("getFreshFrom with unknown structure: " + S);
+    }
+
+    private ISExp getFresh(char c)
+    {
+        ISExp symbol = makeSymbol(("" + c + nextVar++).intern());
         globalEnv.substitution.makeSet((Symbol) symbol);
         return symbol;
+    }
+
+    ISExp getFreshVar()
+    {
+        return getFresh('V');
+    }
+
+    ISExp getFreshRow()
+    {
+        return getFresh('R');
+    }
+
+    ISExp getFreshLab()
+    {
+        return getFresh('L');
     }
 
     private Environment globalEnv = new Environment();
@@ -338,7 +367,7 @@ public class Unifier
             {
                 if (!newVars.containsKey(type))
                 {
-                    ISExp newVar = getFreshVar();
+                    ISExp newVar = getFreshFrom(type);
                     newVars.put(type, newVar);
                 }
             }
@@ -853,7 +882,19 @@ public class Unifier
         return new EnvSet(set, exception);
     }
 
-    private EnvSet unify(ISExp first, ISExp second, Environment env) throws UnifyException
+    private static EnvSet unifyCheck(ISExp first, ISExp second, Environment env)
+    {
+        try
+        {
+            return unify(first, second, env);
+        }
+        catch (UnifyException e)
+        {
+            return new EnvSet(e);
+        }
+    }
+
+    private static EnvSet unify(ISExp first, ISExp second, Environment env) throws UnifyException
     {
         final ISExp firstLink = env.find(first);
         final ISExp secondLink = env.find(second);
@@ -886,7 +927,7 @@ public class Unifier
             if (firstCons.car instanceof StringAtom && firstCons.car.equals(secondCons.car))
             {
                 String name = ((StringAtom) firstCons.car).value;
-                if (name.equals("{}"))
+                if (isRow(firstCons))
                 {
                     throw new IllegalStateException("unify called on a row.");
                     // record unification
@@ -972,6 +1013,7 @@ public class Unifier
                     {
                         return new EnvSet(ret, exception);
                     }
+                    throw new UnifyException("Argument lists have different sizes: " + length(firstCons.cdr) + " and " + length(secondCons.cdr) + ", types: " + typeToString(firstLink, env) + " and " + typeToString(secondLink, env));
                 }
             }
         }
@@ -999,7 +1041,7 @@ public class Unifier
                 Set<Environment> set = Sets.newHashSet();
                 for (Environment e : envSet)
                 {
-                    EnvSet newEvs = unifyRows(r1, r2, e);
+                    EnvSet newEvs = unifyRows(r1, r2, e, DefaultUnifier.INSTANCE);
                     if (newEvs.evs.isEmpty())
                     {
                         exception = newEvs.exception;
@@ -1023,7 +1065,7 @@ public class Unifier
         return new EnvSet(envSet, exception);
     }
 
-    private EnvSet unifyRows(ISExp r1, ISExp r2, Environment env)
+    private EnvSet unifyRows(ISExp r1, ISExp r2, Environment env, IRowTypeUnifier rowUnifier)
     {
         r1 = env.find(r1);
         r2 = env.find(r2);
@@ -1041,7 +1083,8 @@ public class Unifier
             {
                 ISExp first = env.find(r1);
                 ISExp second = env.find(r2);
-                return unifyRows(first, second, env);
+                // FIXME: recursion?
+                return unifyRows(first, second, env, rowUnifier);
             }
         }
         else
@@ -1053,41 +1096,114 @@ public class Unifier
                 r2 = t;
             }
             Cons c0 = (Cons) r1;
-            if(c0.cdr == Nil.INSTANCE)
+            if(c0.cdr == Nil.INSTANCE) // empty row
             {
                 if(r1.equals(r2))
                 {
                     return new EnvSet(env);
                 }
-                if(!(r2 instanceof Symbol))
+                if(r2 instanceof Symbol)
                 {
-                    return new EnvSet(new UnifyException("Can't unify rows: " + typeToString(r1, env) + " and " + typeToString(r2, env)));
+                    try
+                    {
+                        return union((Symbol) r2, r1, env);
+                    }
+                    catch (UnifyException e)
+                    {
+                        return new EnvSet(e);
+                    }
                 }
-                try
+                if(r2 instanceof Cons)
                 {
-                    return union((Symbol) r2, r1, env);
+                    Cons c1 = (Cons) r2;
+                    if(length(c1) == 3) // from or to
+                    {
+                        Cons c2 = (Cons) c1.cdr;
+                        Cons c3 = (Cons) c2.cdr;
+                        // unify to.r or from.r with empty row
+                        return unifyRows(r1, c3.car, env, rowUnifier);
+                    }
                 }
-                catch (UnifyException e)
-                {
-                    return new EnvSet(e);
-                }
+                return new EnvSet(new UnifyException("Can't unify rows: " + typeToString(r1, env) + " and " + typeToString(r2, env)));
             }
+            String name = ((StringAtom) c0.car).value;
             Cons c1 = (Cons) c0.cdr;
             Cons c2 = (Cons) c1.cdr;
-            Cons c3 = (Cons) c2.cdr;
-            ISExp lLink = env.find(c1.car);
-            return unifyRows(lLink, c2.car, c3.car, r2, env);
+            if(name.equals("from"))
+            {
+                return unifyRows(c2.car, r2, env, new FromUnifier(rowUnifier, c1.car));
+            }
+            else if(name.equals("to"))
+            {
+                return unifyRows(c2.car, r2, env, new ToUnifier(rowUnifier, c1.car));
+            }
+            else
+            {
+                Cons c3 = (Cons) c2.cdr;
+                return unifyRows(c1.car, c2.car, c3.car, r2, env, rowUnifier);
+            }
         }
     }
 
-    private EnvSet unifyRows(ISExp l, ISExp t, ISExp r, ISExp s, Environment env)
+    private static interface IRowTypeUnifier
     {
+        EnvSet unifyTypes(ISExp t1, ISExp t2, Environment env);
+    }
 
+    private static enum DefaultUnifier implements IRowTypeUnifier
+    {
+        INSTANCE;
+
+        @Override
+        public EnvSet unifyTypes(ISExp t1, ISExp t2, Environment env)
+        {
+            return unifyCheck(t1, t2, env);
+        }
+    }
+
+    private static class FromUnifier implements IRowTypeUnifier
+    {
+        private final IRowTypeUnifier parent;
+        private final ISExp t;
+
+        private FromUnifier(IRowTypeUnifier parent, ISExp t)
+        {
+            this.parent = parent;
+            this.t = t;
+        }
+
+        @Override
+        public EnvSet unifyTypes(ISExp t1, ISExp t2, Environment env)
+        {
+            return parent.unifyTypes(absType(lift(t), t1), t2, env);
+        }
+    }
+
+    private static class ToUnifier implements IRowTypeUnifier
+    {
+        private final IRowTypeUnifier parent;
+        private final ISExp t;
+
+        private ToUnifier(IRowTypeUnifier parent, ISExp t)
+        {
+            this.parent = parent;
+            this.t = t;
+        }
+
+        @Override
+        public EnvSet unifyTypes(ISExp t1, ISExp t2, Environment env)
+        {
+            return parent.unifyTypes(absType(lift(t1), t), t2, env);
+        }
+    }
+
+    private EnvSet unifyRows(ISExp l, ISExp t, ISExp r, ISExp s, Environment env, IRowTypeUnifier rowUnifier)
+    {
         ImmutableSet.Builder<Environment> builder = ImmutableSet.builder();
         ImmutableSet<Pair<Environment, ISExp>> inserters = null;
         try
         {
-            inserters = insert(l, t, s, env);
+            inserters = insert(l, t, s, env, rowUnifier);
         }
         catch (UnifyException e)
         {
@@ -1100,7 +1216,7 @@ public class Unifier
             try
             {
                 Environment newEnv = env.mergeWith(inserter.getLeft());
-                EnvSet unifiers = unifyRows(r, s_l, newEnv);
+                EnvSet unifiers = unifyRows(r, s_l, newEnv, rowUnifier);
                 builder.addAll(unifiers.evs);
             }
             catch (UnifyException e)
@@ -1113,43 +1229,65 @@ public class Unifier
     }
 
     // mostly done?
-    private ImmutableSet<Pair<Environment, ISExp>> insert(final ISExp l, final ISExp t, ISExp r, Environment env) throws UnifyException
+    private ImmutableSet<Pair<Environment, ISExp>> insert(final ISExp l, final ISExp t, ISExp r, Environment env, IRowTypeUnifier rowUnifier) throws UnifyException
     {
         ISExp rLink = env.find(r);
         if(rLink instanceof Symbol)
         {
             final Symbol A = (Symbol) rLink;
-            final ISExp B = getFreshVar();
-            if(occurs(A, t))
+            final ISExp B = getFreshRow();
+            ISExp t2 = getFreshVar();
+            if(occurs(A, t, env))
             {
                 return ImmutableSet.of();
             }
-            final ISExp ra = makeRow(l, t, B);
-            return ImmutableSet.of(Pair.of(env.mergeWith(Environment.fromSub(A, ra)), B));
+            final ISExp ra = makeRow(l, t2, B);
+            EnvSet envSet = rowUnifier.unifyTypes(t2, t, env);
+            if(envSet.evs.isEmpty())
+            {
+                throw envSet.exception;
+            }
+            ImmutableSet.Builder<Pair<Environment, ISExp>> builder = ImmutableSet.builder();
+            Environment sub = Environment.fromSub(A, ra);
+            for (Environment e : envSet.evs)
+            {
+                builder.add(Pair.of(e.mergeWith(sub), B));
+            }
+            return builder.build();
         }
         if(length(rLink) == 1)
         {
             throw new UnifyException("Can't insert label " + l + " into an empty row");
         }
-        Cons c1 = (Cons) rLink;
+        Cons c0 = (Cons) rLink;
+        Cons c1 = (Cons) c0.cdr;
         Cons c2 = (Cons) c1.cdr;
+        String name = ((StringAtom) c0.car).value;
+        if(name.equals("from"))
+        {
+            return insert(l, t, c2.car, env, new FromUnifier(rowUnifier, c1.car));
+        }
+        else if(name.equals("to"))
+        {
+            return insert(l, t, c2.car, env, new ToUnifier(rowUnifier, c1.car));
+        }
         Cons c3 = (Cons) c2.cdr;
-        Cons c4 = (Cons) c3.cdr;
-        ISExp l1 = c2.car;
-        ISExp t1 = c3.car;
-        ISExp r1 = c4.car;
+        ISExp l1 = c1.car;
+        ISExp t1 = c2.car;
+        ISExp r1 = c3.car;
         ISExp label1 = env.find(l);
         ISExp label2 = env.find(l1);
         ImmutableSet<Pair<Environment, ISExp>> inserters;
         UnifyException exception = null;
         // TODO: check if this is the only case in which we should stop
+        // FIXME: ["#label", "#T"]
         if(!(label1 instanceof Symbol) && label1.equals(label2))
         {
             inserters = ImmutableSet.of();
         }
         else try
         {
-            inserters = insert(l, t, r1, env);
+            inserters = insert(l, t, r1, env, rowUnifier);
         }
         catch(UnifyException e)
         {
@@ -1159,7 +1297,7 @@ public class Unifier
         EnvSet fields;
         try
         {
-            fields = unifyFields(l, l1, t, t1, env);
+            fields = unifyFields(l, l1, t, t1, env, rowUnifier);
         }
         catch(UnifyException e)
         {
@@ -1187,21 +1325,21 @@ public class Unifier
         return set;
     }
 
-    private EnvSet unifyFields(ISExp l1, ISExp l2, ISExp t1, ISExp t2, Environment env) throws UnifyException
+    private EnvSet unifyFields(ISExp l1, ISExp l2, ISExp t1, ISExp t2, Environment env, IRowTypeUnifier rowUnifier) throws UnifyException
     {
         if(l1 instanceof Symbol)
         {
             // FIXME: eq?
-            return unify(t1, t2, env.mergeWith(Environment.fromSub((Symbol) l1, l2)));
+            return rowUnifier.unifyTypes(t1, t2, env.mergeWith(Environment.fromSub((Symbol) l1, l2)));
         }
         if(l2 instanceof Symbol)
         {
             // FIXME: eq?
-            return unify(t1, t2, env.mergeWith(Environment.fromSub((Symbol) l2, l1)));
+            return rowUnifier.unifyTypes(t1, t2, env.mergeWith(Environment.fromSub((Symbol) l2, l1)));
         }
         else if(l1.equals(l2)) // TODO: good enough equality?
         {
-            return unify(t1, t2, env);
+            return rowUnifier.unifyTypes(t1, t2, env);
         }
         throw new UnifyException("Couldn't unify labels: " + l1 + " and " + l2);
     }
@@ -1260,9 +1398,9 @@ public class Unifier
         throw new IllegalStateException("Type error: can't insert " + typeToString(l, typeMap) + " : " + typeToString(t, typeMap) + " into " + typeToString(rLink, typeMap));
     }*/
 
-    private boolean occurs(Symbol type, ISExp other)
+    private static boolean occurs(Symbol type, ISExp other, Environment env)
     {
-        ISExp link = globalEnv.find(other);
+        ISExp link = env.find(other);
         if(link instanceof Symbol)
         {
             // FIXME: ==?
@@ -1274,7 +1412,7 @@ public class Unifier
             while(list != Nil.INSTANCE)
             {
                 Cons cons = (Cons) list;
-                if(occurs(type, cons.car))
+                if(occurs(type, cons.car, env))
                 {
                     return true;
                 }
@@ -1284,11 +1422,11 @@ public class Unifier
         return false;
     }
 
-    private EnvSet union(final Symbol type, final ISExp other, Environment env) throws UnifyException
+    private static EnvSet union(final Symbol type, final ISExp other, Environment env) throws UnifyException
     {
         if(!type.equals(other))
         {
-            if(!occurs(type, other))
+            if(!occurs(type, other, env))
             {
                 return new EnvSet(env.mergeWith(Environment.fromSub(type, other)));
                 // manually creating it cause it might be complex
@@ -1403,6 +1541,18 @@ public class Unifier
                 return "{ }";
             }
             return "{" + rowToString(cons, env, true, ident + 1) + "\n" + StringUtils.repeat(' ', ident * 2) + "}";
+        }
+        else if(cons.car.equals(makeString("from")))
+        {
+            Cons c1 = (Cons) cons.cdr;
+            Cons c2 = (Cons) c1.cdr;
+            return "[from " + typeToString(c1.car, env, ident) + ", " + typeToString(c2.car, env, ident) + "]";
+        }
+        else if(cons.car.equals(makeString("to")))
+        {
+            Cons c1 = (Cons) cons.cdr;
+            Cons c2 = (Cons) c1.cdr;
+            return "[to " + typeToString(c1.car, env, ident) + ", " + typeToString(c2.car, env, ident) + "]";
         }
         else if(cons.car.equals(makeString("label")))
         {

@@ -2,6 +2,7 @@ package net.minecraftforge.common.plon;
 
 import com.google.common.base.Function;
 import com.google.common.collect.*;
+import org.apache.commons.lang3.NotImplementedException;
 
 import java.util.Set;
 
@@ -215,9 +216,7 @@ public abstract class Interpreter<State, Result>
     protected abstract Result visitLambda(IList args, ISExp body, IList env, State state);
     protected abstract Result visitMacro(ISExp type, IList args, ISExp body, IList env, State state);
     protected abstract Result visitLabel(ISExp label);
-    protected abstract Result visitFold(Result func, Result res, Result list, IList env, State state);
     //protected abstract Result visitMFold(Result func, Result res, Result map, IList env, State state);
-    protected abstract Result visitHas(Result label, Result sum, Result f1, Result f2, IList env, State state);
     protected abstract Result visitApply(Result func, ImmutableList<Result> args, IList env, State state);
     protected abstract Result visitMap(Map map, IList env, State state);
 
@@ -300,40 +299,6 @@ public abstract class Interpreter<State, Result>
                             throw new IllegalArgumentException("label needs 1 string argument, got: " + cons.cdr);
                         }
                         return visitLabel(((Cons) cons.cdr).car);
-                    }
-                    else if (name == "fold")
-                    {
-                        if (length(cons.cdr) != 3)
-                        {
-                            throw new IllegalArgumentException("fold needs 3 arguments, got: " + cons.cdr);
-                        }
-                        Cons c1 = (Cons) cons.cdr;
-                        Cons c2 = (Cons) c1.cdr;
-                        Cons c3 = (Cons) c2.cdr;
-
-                        Result f = eval(c1.car, env, state);
-                        Result ret = eval(c2.car, env, state);
-                        Result list = eval(c3.car, env, state);
-
-                        return visitFold(f, ret, list, env, state);
-                    }
-                    else if (name == "has")
-                    {
-                        if (length(cons.cdr) != 4)
-                        {
-                            throw new IllegalArgumentException("has needs 4 arguments, got: " + cons.cdr);
-                        }
-                        Cons c1 = (Cons) cons.cdr;
-                        Cons c2 = (Cons) c1.cdr;
-                        Cons c3 = (Cons) c2.cdr;
-                        Cons c4 = (Cons) c3.cdr;
-
-                        Result label = eval(c1.car, env, state);
-                        Result sum = eval(c2.car, env, state);
-                        Result f1 = eval(c3.car, env, state);
-                        Result f2 = eval(c4.car, env, state);
-
-                        return visitHas(label, sum, f1, f2, env, state);
                     }
                     /*else if(name == "mfold")
                     {
@@ -449,32 +414,6 @@ public abstract class Interpreter<State, Result>
             return lift(makeString("label"), label);
         }
 
-        @Override
-        public ISExp visitFold(ISExp func, ISExp res, ISExp list, IList env, Void state)
-        {
-            while(list != Nil.INSTANCE)
-            {
-                Cons c4 = (Cons) list;
-                res = visitApply(func, ImmutableList.of(res, c4.car), env, state);
-                list = c4.cdr;
-            }
-            return res;
-        }
-
-        @Override
-        protected ISExp visitHas(ISExp label, ISExp sum, ISExp f1, ISExp f2, IList env, Void state)
-        {
-            Cons sc = (Cons) sum;
-            Map row = (Map) ((Cons) sc.cdr).car;
-
-            //ISExp l = labelValue(label);
-            if(row.value.containsKey(label))
-            {
-                return visitApply(f1, ImmutableList.of(row.value.get(label)), env, state);
-            }
-            return visitApply(f2, ImmutableList.of(sum), env, state);
-        }
-
         /*@Override
         public ISExp visitMFold(ISExp func, ISExp res, ISExp map, IList env, Void state)
         {
@@ -493,7 +432,7 @@ public abstract class Interpreter<State, Result>
         @Override
         public ISExp visitApply(ISExp func, ImmutableList<ISExp> args, IList env, Void state)
         {
-            return apply(func, lift(args), state);
+            return apply(func, lift(args));
         }
 
         @Override
@@ -533,11 +472,11 @@ public abstract class Interpreter<State, Result>
             return value;
         }
 
-        protected ISExp apply(ISExp func, IList args, Void state)
+        protected ISExp apply(ISExp func, IList args)
         {
             if (func instanceof ICallableExp)
             {
-                return ((ICallableExp) func).apply(args);
+                return ((ICallableExp) func).apply(this, args);
             }
             if (func instanceof Cons)
             {
@@ -561,7 +500,7 @@ public abstract class Interpreter<State, Result>
                             ISExp env = c4.car;
                             if (env instanceof IList && c4.cdr == Nil.INSTANCE)
                             {
-                                return eval(body, bind(argNames, args, (IList) env), state);
+                                return eval(body, bind(argNames, args, (IList) env), null);
                             }
                         }
                     }
@@ -608,7 +547,7 @@ public abstract class Interpreter<State, Result>
             {
                 return ((IMacroExp) func).apply(args);
             }
-            return apply(func, args, null);
+            return apply(func, args);
         }
     }
 
@@ -695,32 +634,6 @@ public abstract class Interpreter<State, Result>
             return labelType(label);
         }
 
-        @Override
-        public ISExp visitFold(ISExp func, ISExp res, ISExp list, IList env, ImmutableSet<ISExp> boundVarTypes)
-        {
-            // ((A, B) -> A, A, list[A]) -> A
-            ISExp A = unifier.getFreshVar(), B = unifier.getFreshVar();
-            ISExp fType = absType(lift(A, B), A);
-            unifier.unify(func, fType);
-            unifier.unify(res, A);
-            unifier.unify(list, PrimTypes.List.type);
-            return A;
-        }
-
-        @Override
-        protected ISExp visitHas(ISExp label, ISExp sum, ISExp f1, ISExp f2, IList env, ImmutableSet<ISExp> isExps)
-        {
-            ISExp r = unifier.getFreshVar();
-            ISExp A = unifier.getFreshVar();
-            ISExp B = unifier.getFreshVar();
-            unifier.addLacks(r, label);
-            ISExp m = makeRow(label, A, r);
-            unifier.unify(sumType(m), sum);
-            unifier.unify(absType(lift(A), B), f1);
-            unifier.unify(absType(lift(sumType(r)), B), f2);
-            return B;
-        }
-
         /*@Override
         public ISExp visitMFold(ISExp func, ISExp res, ISExp map, IList env, ImmutableSet<ISExp> boundVarTypes)
         {
@@ -749,7 +662,7 @@ public abstract class Interpreter<State, Result>
             {
                 cns = makeRow(eval(entry.getKey(), env, boundVarTypes), eval(entry.getValue(), env, boundVarTypes), cns);
             }
-            ISExp ret = unifier.getFreshVar();
+            ISExp ret = unifier.getFreshRow();
             unifier.unify(prodType(ret), prodType(cns));
             return prodType(ret);
         }

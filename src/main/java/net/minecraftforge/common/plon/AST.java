@@ -97,7 +97,7 @@ public enum AST
 
     static interface ICallableExp extends ISExp
     {
-        ISExp apply(IList args);
+        ISExp apply(Interpreter.Evaluator eval, IList args);
     }
 
     static interface IMacroExp extends ISExp
@@ -323,7 +323,7 @@ public enum AST
         }
 
         @Override
-        public FloatAtom apply(IList args)
+        public FloatAtom apply(Interpreter.Evaluator eval, IList args)
         {
             if (length(args) != ops.length() + 1)
             {
@@ -378,7 +378,7 @@ public enum AST
         }
 
         @Override
-        public ISExp apply(IList args)
+        public ISExp apply(Interpreter.Evaluator eval, IList args)
         {
             if (length(args) != 1)
             {
@@ -429,7 +429,7 @@ public enum AST
                 Cons cons = (Cons) args;
                 Cons c1 = (Cons) cons.car;
                 Cons c2 = (Cons) c1.cdr;
-                return lift(makeSymbol("conm"), c1.car, c2.car, apply(cons.cdr));
+                return lift(makeSymbol("mcons"), c1.car, c2.car, apply(cons.cdr));
             }
         };
 
@@ -461,27 +461,11 @@ public enum AST
     }
     enum PrimOp implements ICallableExp
     {
-        Length("length", lift(PrimTypes.List.type), PrimTypes.Float.type)
+        // correct mlength and mfold need Any
+        /*Mlength("mlength")
         {
             @Override
-            public FloatAtom apply(IList args)
-            {
-                if (args == Nil.INSTANCE)
-                {
-                    throw new IllegalArgumentException("Length with no arguments");
-                }
-                Cons cons = (Cons) args;
-                if (cons.cdr != Nil.INSTANCE)
-                {
-                    throw new IllegalArgumentException("Length has too many arguments: " + cons);
-                }
-                return new FloatAtom(length(cons.car));
-            }
-        },
-        Mlength("mlength")
-        {
-            @Override
-            public FloatAtom apply(IList args)
+            public FloatAtom apply(Interpreter.Evaluator eval, IList args)
             {
                 if (args == Nil.INSTANCE)
                 {
@@ -498,90 +482,45 @@ public enum AST
             @Override
             public ISExp getType(Unifier unifier)
             {
-                ISExp r = unifier.getFreshVar();
+                ISExp r = unifier.getFreshRow();
                 return absType(lift(prodType(r)), PrimTypes.Float.type);
             }
-        },
-        // FIXME: sum + prod
+        },*/
         Cons("cons")
         {
             @Override
-            public ISExp apply(IList args)
+            public ISExp apply(Interpreter.Evaluator eval, IList args)
             {
-                if (length(args) != 2)
-                {
-                    throw new IllegalArgumentException("Cons needs 2 arguments, got: " + args);
-                }
                 Cons c1 = (Cons) args;
                 Cons c2 = (Cons) c1.cdr;
-                if (!(c2.car instanceof IList))
-                {
-                    throw new IllegalArgumentException("Cons needs a list as a second argument");
-                }
                 return new Cons(c1.car, (IList) c2.car);
             }
 
             @Override
             public ISExp getType(Unifier unifier)
             {
-                return absType(lift(unifier.getFreshVar(), PrimTypes.List.type), PrimTypes.List.type);
-            }
-        },
-        // unsound, not total
-        Car("car")
-        {
-            @Override
-            public ISExp apply(IList args)
-            {
-                if (length(args) != 1)
-                {
-                    throw new IllegalArgumentException("Car needs 1 argument, got: " + args);
-                }
-                Cons cons = (Cons) args;
-                if (cons.car instanceof Cons)
-                {
-                    return ((Cons) cons.car).car;
-                }
-                throw new IllegalArgumentException("Car called not on a list");
-            }
-
-            @Override
-            public ISExp getType(Unifier unifier)
-            {
-                return absType(lift(PrimTypes.List.type), unifier.getFreshVar());
-            }
-        },
-        // not total
-        Cdr("cdr", lift(PrimTypes.List.type), PrimTypes.List.type)
-        {
-            @Override
-            public ISExp apply(IList args)
-            {
-                if (length(args) != 1)
-                {
-                    throw new IllegalArgumentException("Cdr needs 1 argument, got: " + args);
-                }
-                Cons cons = (Cons) args;
-                if (cons.car instanceof Cons)
-                {
-                    return ((Cons) cons.car).cdr;
-                }
-                throw new IllegalArgumentException("Cdr called not on a list");
+                ISExp car = unifier.getFreshVar();
+                ISExp cdr = unifier.getFreshVar();
+                ISExp prod = prodType(makeRow(labelType(makeString("car")), car, makeRow(labelType(makeString("cdr")), cdr, emptyRow())));
+                ISExp ret = sumType(makeRow(labelType(makeString("cons")), prod, makeRow(labelType(makeString("nil")), unifier.getFreshVar(), emptyRow())));
+                return absType(lift(car, cdr), ret);
             }
         },
         MCons("mcons")
         {
             @Override
-            public ISExp apply(IList args)
+            public ISExp apply(Interpreter.Evaluator eval, IList args)
             {
                 Cons c1 = (Cons) args;
                 Cons c2 = (Cons) c1.cdr;
                 Cons c3 = (Cons) c2.cdr;
                 ISExp label = c1.car;
                 ISExp value = c2.car;
-                Map map = (Map) c3.car;
                 ImmutableMap.Builder<ISExp, ISExp> builder = ImmutableMap.builder();
-                builder.putAll(map.value);
+                if(c3.car != MNil.INSTANCE)
+                {
+                    builder.putAll(((Map) c3.car).value);
+                }
                 builder.put(label, value);
                 return new Map(builder.build());
             }
@@ -589,8 +528,9 @@ public enum AST
             @Override
             public ISExp getType(Unifier unifier)
             {
-                ISExp l = unifier.getFreshVar();
-                ISExp r = unifier.getFreshVar();
+                // Hmm
+                ISExp l = unifier.getFreshLab();
+                ISExp r = unifier.getFreshRow();
                 ISExp A = unifier.getFreshVar();
                 unifier.addLacks(r, l);
                 ISExp m = makeRow(l, A, r);
@@ -600,7 +540,7 @@ public enum AST
         MCar("mcar")
         {
             @Override
-            public ISExp apply(IList args)
+            public ISExp apply(Interpreter.Evaluator eval, IList args)
             {
                 Cons c1 = (Cons) args;
                 Cons c2 = (Cons) c1.cdr;
@@ -616,11 +556,11 @@ public enum AST
             @Override
             public ISExp getType(Unifier unifier)
             {
-                ISExp l = unifier.getFreshVar();
-                ISExp r = unifier.getFreshVar();
+                ISExp l = unifier.getFreshLab();
+                ISExp r = unifier.getFreshRow();
                 ISExp A = unifier.getFreshVar();
                 unifier.addLacks(r, l);
-                ISExp m = unifier.getFreshVar();
+                ISExp m = unifier.getFreshRow();
                 unifier.unify(prodType(m), prodType(makeRow(l, A, r)));
                 return absType(lift(prodType(m), l), A);
             }
@@ -628,7 +568,7 @@ public enum AST
         MCdr("mcdr")
         {
             @Override
-            public ISExp apply(IList args)
+            public ISExp apply(Interpreter.Evaluator eval, IList args)
             {
                 Cons c1 = (Cons) args;
                 Cons c2 = (Cons) c1.cdr;
@@ -652,31 +592,47 @@ public enum AST
             @Override
             public ISExp getType(Unifier unifier)
             {
-                ISExp l = unifier.getFreshVar();
-                ISExp r = unifier.getFreshVar();
+                ISExp l = unifier.getFreshLab();
+                ISExp r = unifier.getFreshRow();
                 ISExp A = unifier.getFreshVar();
                 unifier.addLacks(r, l);
                 ISExp m = makeRow(l, A, r);
                 return absType(lift(prodType(m), l), prodType(r));
             }
         },
-        Eq("eq")
+        // Any needs compilation + evidence passing to work properly
+        /*Any("any")
         {
             @Override
-            public ISExp apply(IList args)
+            public ISExp apply(Interpreter.Evaluator eval, IList args)
             {
-                Cons c1 = (Cons) args;
-                Cons c2 = (Cons) c1.cdr;
-                ISExp label = c1.car;
-                ISExp value = c2.car;
-                return lift(makeSymbol("&sum"), new Map(ImmutableMap.of(label, value)));
+                throw new UnsupportedOperationException("apply of #any");
             }
 
             @Override
             public ISExp getType(Unifier unifier)
             {
-                ISExp l = unifier.getFreshVar();
-                ISExp r = unifier.getFreshVar();
+                ISExp l = unifier.getFreshLab();
+                return l;
+            }
+        },*/
+        Eq("eq")
+        {
+            @Override
+            public ISExp apply(Interpreter.Evaluator eval, IList args)
+            {
+                Cons c1 = (Cons) args;
+                Cons c2 = (Cons) c1.cdr;
+                ISExp label = c1.car;
+                ISExp value = c2.car;
+                return makeSum(label, value);
+            }
+
+            @Override
+            public ISExp getType(Unifier unifier)
+            {
+                ISExp l = unifier.getFreshLab();
+                ISExp r = unifier.getFreshRow();
                 ISExp A = unifier.getFreshVar();
                 unifier.addLacks(r, l);
                 ISExp m = makeRow(l, A, r);
@@ -686,25 +642,148 @@ public enum AST
         Or("or")
         {
             @Override
-            public ISExp apply(IList args)
+            public ISExp apply(Interpreter.Evaluator eval, IList args)
             {
                 Cons c1 = (Cons) args;
                 Cons c2 = (Cons) c1.cdr;
                 ISExp label = c1.car;
-                Cons sum = (Cons) c2.car;
-                ISExp row = ((Cons) sum.cdr).car;
-                return lift(makeSymbol("&sum"), row);
+                ISExp sum = c2.car;
+                // no need to store the label
+                return sum;
             }
 
             @Override
             public ISExp getType(Unifier unifier)
             {
-                ISExp l = unifier.getFreshVar();
-                ISExp r = unifier.getFreshVar();
+                ISExp l = unifier.getFreshLab();
+                ISExp r = unifier.getFreshRow();
                 ISExp A = unifier.getFreshVar();
                 unifier.addLacks(r, l);
                 ISExp m = makeRow(l, A, r);
                 return absType(lift(l, sumType(r)), sumType(m));
+            }
+        },
+        Has("has")
+        {
+            @Override
+            public ISExp apply(Interpreter.Evaluator eval, IList args)
+            {
+                Cons c1 = (Cons) args;
+                Cons c2 = (Cons) c1.cdr;
+                Cons c3 = (Cons) c2.cdr;
+                Cons c4 = (Cons) c3.cdr;
+
+                if(getSumLabel(c2.car).equals(c1.car))
+                {
+                    return eval.apply(c3.car, lift(getSumValue(c2.car)));
+                }
+                return eval.apply(c4.car, lift(c2.car));
+            }
+            @Override
+            public ISExp getType(Unifier unifier)
+            {
+                ISExp l = unifier.getFreshLab();
+                ISExp r = unifier.getFreshRow();
+                ISExp A = unifier.getFreshVar();
+                ISExp B = unifier.getFreshVar();
+                unifier.addLacks(r, l);
+                ISExp m = makeRow(l, A, r);
+                return absType(lift(
+                    l,
+                    sumType(m),
+                    absType(lift(A), B),
+                    absType(lift(sumType(r)), B)
+                ), B);
+            }
+        },
+        Case("case")
+        {
+            @Override
+            public ISExp apply(Interpreter.Evaluator eval, IList args)
+            {
+                Cons c1 = (Cons) args;
+                Cons c2 = (Cons) c1.cdr;
+                Map prod = (Map) c2.car;
+                ISExp label = getSumLabel(c1.car);
+                ISExp value = getSumValue(c1.car);
+                ISExp func = prod.value.get(label);
+                return eval.apply(func, lift(value));
+            }
+
+            @Override
+            public ISExp getType(Unifier unifier)
+            {
+                ISExp r = unifier.getFreshRow();
+                ISExp A = unifier.getFreshVar();
+                return absType(lift(sumType(r), prodType(to(A, r))), A);
+            }
+        },
+        Select("select")
+        {
+            @Override
+            public ISExp apply(Interpreter.Evaluator eval, IList args)
+            {
+                Cons c1 = (Cons) args;
+                Cons c2 = (Cons) c1.cdr;
+                Map prod = (Map) c1.car;
+                ISExp label = getSumLabel(c1.car);
+                ISExp value = prod.value.get(label);
+                ISExp func = getSumValue(c2.car);
+                return eval.apply(func, lift(value));
+            }
+
+            @Override
+            public ISExp getType(Unifier unifier)
+            {
+                ISExp r = unifier.getFreshRow();
+                ISExp A = unifier.getFreshVar();
+                return absType(lift(prodType(r), sumType(to(A, r))), A);
+            }
+        },
+        Product("product")
+        {
+            @Override
+            public ISExp apply(Interpreter.Evaluator eval, IList args)
+            {
+                Cons c1 = (Cons) args;
+                Cons c2 = (Cons) c1.cdr;
+                Map prod = (Map) c2.car;
+                if(prod.value.isEmpty())
+                {
+                    return MNil.INSTANCE;
+                }
+                ImmutableMap.Builder<ISExp, ISExp> builder = ImmutableMap.builder();
+                for (java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : prod.value.entrySet())
+                {
+                    builder.put(entry.getKey(), eval.apply(entry.getValue(), lift(c1.car)));
+                }
+                return new Map(builder.build());
+            }
+
+            @Override
+            public ISExp getType(Unifier unifier)
+            {
+                ISExp r = unifier.getFreshRow();
+                ISExp A = unifier.getFreshVar();
+                return absType(lift(A, prodType(from(A, r))), prodType(r));
+            }
+        },
+        Sum("sum")
+        {
+            @Override
+            public ISExp apply(Interpreter.Evaluator eval, IList args)
+            {
+                Cons c1 = (Cons) args;
+                Cons c2 = (Cons) c1.cdr;
+                return makeSum(getSumLabel(c2.car), eval.apply(getSumValue(c2.car), lift(c1.car)));
+            }
+
+            @Override
+            public ISExp getType(Unifier unifier)
+            {
+                ISExp r = unifier.getFreshRow();
+                ISExp A = unifier.getFreshVar();
+                return absType(lift(A, sumType(from(A, r))), sumType(r));
             }
         };
 
@@ -767,7 +846,7 @@ public enum AST
         @Override
         public ISExp getType(Unifier unifier)
         {
-            return PrimTypes.List.type;
+            return sumType(makeRow(labelType(makeString("cons")), unifier.getFreshVar(), makeRow(labelType(makeString("nil")), prodType(emptyRow()), emptyRow())));
         }
     }
 
@@ -825,7 +904,10 @@ public enum AST
         @Override
         public ISExp getType(Unifier unifier)
         {
-            return PrimTypes.List.type;
+            ISExp carType = car.getType(unifier);
+            ISExp cdrType = car.getType(unifier);
+            ISExp prod = prodType(makeRow(labelType(makeString("car")), carType, makeRow(labelType(makeString("cdr")), cdrType, emptyRow())));
+            return sumType(makeRow(labelType(makeString("cons")), prod, makeRow(labelType(makeString("nil")), unifier.getFreshVar(), emptyRow())));
         }
     }
 
@@ -844,7 +926,7 @@ public enum AST
         @Override
         public ISExp getType(Unifier unifier)
         {
-            return emptyRow();
+            return prodType(emptyRow());
         }
     }
 
@@ -914,16 +996,14 @@ public enum AST
         @Override
         public ISExp getType(Unifier unifier)
         {
-            return PrimTypes.Invalid.type;
             // TODO cache?
-            /*ISExp cns = emptyRow();
+            ISExp row = emptyRow();
             for(java.util.Map.Entry<? extends ISExp, ? extends ISExp> entry : value.entrySet())
             {
-                cns = makeRow(entry.getKey().getType(unifier), entry.getValue().getType(unifier), cns);
+                // label type is the same as the label here, since not evaluating
+                row = makeRow(entry.getKey(), entry.getValue().getType(unifier), row);
             }
-            ISExp var = unifier.getFreshVar();
-            unifier.unify(prodType(var), prodType(cns));
-            return prodType(var);*/
+            return prodType(row);
         }
     }
 
@@ -932,7 +1012,6 @@ public enum AST
         Float("float"),
         String("string"),
         Symbol("symbol"),
-        List("list"), // TODO: sum + product
         Invalid("invalid");
 
         final ISExp type;
@@ -940,6 +1019,47 @@ public enum AST
         PrimTypes(String type)
         {
             this.type = makeString(type);
+        }
+    }
+
+    static ISExp makeSum(ISExp label, ISExp value)
+    {
+        return new Map(ImmutableMap.of(label, value));
+    }
+
+    static ISExp getSumLabel(ISExp sum)
+    {
+        if(sum == Nil.INSTANCE)
+        {
+            return labelType(makeString("nil"));
+        }
+        else if(sum instanceof Cons)
+        {
+            return labelType(makeString("cons"));
+        }
+        else
+        {
+            return ((Map) sum).value.keySet().iterator().next();
+        }
+    }
+
+    static ISExp getSumValue(ISExp sum)
+    {
+        if(sum == Nil.INSTANCE)
+        {
+            return new Map(ImmutableMap.<ISExp, ISExp>of());
+        }
+        else if (sum instanceof Cons)
+        {
+            Cons cons = (Cons) sum;
+            return new Map(ImmutableMap.of(
+                labelType(makeString("car")), cons.car,
+                labelType(makeString("cdr")), cons.cdr
+            ));
+        }
+        else
+        {
+            return ((Map) sum).value.values().iterator().next();
         }
     }
 
@@ -987,6 +1107,31 @@ public enum AST
         return lift(makeString("+"), row);
     }
 
+    static boolean isFunc(ISExp exp)
+    {
+        return exp instanceof Cons && ((Cons) exp).car.equals(makeString("->"));
+    }
+
+    static boolean isProd(ISExp exp)
+    {
+        return exp instanceof Cons && ((Cons) exp).car.equals(makeString("*"));
+    }
+
+    static boolean isSum(ISExp exp)
+    {
+        return exp instanceof Cons && ((Cons) exp).car.equals(makeString("+"));
+    }
+
+    static boolean isRow(ISExp exp)
+    {
+        if(exp instanceof Cons && ((Cons) exp).car instanceof StringAtom)
+        {
+            String name = ((StringAtom) ((Cons) exp).car).value;
+            return name.equals("{}") || name.equals("from") || name.equals("to");
+        }
+        return false;
+    }
+
     static ISExp emptyRow()
     {
         return lift(makeString("{}"));
@@ -1026,7 +1171,7 @@ public enum AST
         if(r instanceof Cons)
         {
             Cons c1 = (Cons) r;
-            if(length(c1) != 1)
+            if(length(c1) == 4)
             {
                 Cons c2 = (Cons) c1.cdr;
                 Cons c3 = (Cons) c2.cdr;
@@ -1042,18 +1187,15 @@ public enum AST
         return r;
     }
 
-    /*static ISExp to(ISExp t, ISExp r)
+    static ISExp from(ISExp t, ISExp r)
     {
-        Cons cons = (Cons) r;
-        if(length(r) == 1)
-        {
-            return emptyRow();
-        }
-        Cons c2 = (Cons) cons.cdr;
-        Cons c3 = (Cons) c2.cdr;
-        Cons c4 = (Cons) c3.cdr;
-        return makeRow(c2.car, absType(lift(c3.car), t), to(t, c3.car));
-    }*/
+        return lift(makeString("from"), t, r);
+    }
+
+    static ISExp to(ISExp t, ISExp r)
+    {
+        return lift(makeString("to"), t, r);
+    }
 
     public static enum SExpTypeAdapterFactory implements TypeAdapterFactory
     {
@@ -1143,6 +1285,10 @@ public enum AST
                             }
                             out.endArray();
                         }
+                    }
+                    else
+                    {
+                        out.nullValue();
                     }
                 }
 
